@@ -1,0 +1,189 @@
+const express = require('express');
+const crypto = require('crypto');
+const router = express.Router();
+const db = require('../db');
+const { initializeEscrow, setServiceProvider } = require('../trustlesswork');
+
+// TODO: add auth on all sensitive routes
+
+/**
+ * POST /bounty/create
+ * Create a new bounty backed by a Trustless Work escrow.
+ */
+router.post('/bounty/create', async (req, res) => {
+  try {
+    const { issueUrl, posterWallet, amount, title, description } = req.body;
+
+    // Validate required fields
+    if (!issueUrl || !posterWallet || !amount || !title) {
+      return res.status(400).json({
+        error: 'Missing required fields: issueUrl, posterWallet, amount, title',
+      });
+    }
+
+    // Parse GitHub issue URL
+    // Expected format: https://github.com/owner/repo/issues/123
+    const urlPattern = /github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/;
+    const urlMatch = issueUrl.match(urlPattern);
+
+    if (!urlMatch) {
+      return res.status(400).json({
+        error: 'Invalid GitHub issue URL. Expected format: https://github.com/owner/repo/issues/123',
+      });
+    }
+
+    const [, repoOwner, repoName, issueNumberStr] = urlMatch;
+    const issueNumber = parseInt(issueNumberStr, 10);
+
+    // Check for duplicate
+    const existing = db.prepare('SELECT id FROM bounties WHERE issueUrl = ?').get(issueUrl);
+    if (existing) {
+      return res.status(409).json({ error: 'A bounty already exists for this issue' });
+    }
+
+    // Generate unique ID
+    const id = crypto.randomUUID();
+
+    // Initialize escrow via Trustless Work API
+    let escrowData = {};
+    try {
+      escrowData = await initializeEscrow({
+        posterWallet,
+        solverWallet: '',
+        amount,
+        title,
+        description: description || '',
+      });
+    } catch (escrowError) {
+      console.error('Escrow initialization failed:', escrowError.message);
+      // Still create the bounty, but without escrow — can be linked later
+      // This allows the app to function even if the API is temporarily down
+    }
+
+    // Store in database
+    const stmt = db.prepare(`
+      INSERT INTO bounties (id, issueUrl, repoOwner, repoName, issueNumber, escrowId, escrowContractAddress, posterWallet, amount, currency, status, title, description)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'USDC', 'open', ?, ?)
+    `);
+
+    stmt.run(
+      id,
+      issueUrl,
+      repoOwner,
+      repoName,
+      issueNumber,
+      escrowData.escrowId || null,
+      escrowData.contractAddress || null,
+      posterWallet,
+      amount,
+      title,
+      description || null
+    );
+
+    const bounty = db.prepare('SELECT * FROM bounties WHERE id = ?').get(id);
+
+    console.log(`🏆 Bounty created: ${title} (${amount} USDC) for ${issueUrl}`);
+    return res.status(201).json(bounty);
+  } catch (error) {
+    console.error('Create bounty error:', error);
+    return res.status(500).json({ error: 'Failed to create bounty' });
+  }
+});
+
+/**
+ * POST /bounty/claim
+ * Claim an open bounty as a solver.
+ */
+router.post('/bounty/claim', async (req, res) => {
+  try {
+    const { bountyId, solverWallet } = req.body;
+
+    if (!bountyId || !solverWallet) {
+      return res.status(400).json({
+        error: 'Missing required fields: bountyId, solverWallet',
+      });
+    }
+
+    const bounty = db.prepare('SELECT * FROM bounties WHERE id = ?').get(bountyId);
+
+    if (!bounty) {
+      return res.status(404).json({ error: 'Bounty not found' });
+    }
+
+    if (bounty.status !== 'open') {
+      return res.status(400).json({
+        error: `Bounty is ${bounty.status}, only open bounties can be claimed`,
+      });
+    }
+
+    // Update service provider on escrow
+    if (bounty.escrowId) {
+      try {
+        await setServiceProvider(bounty.escrowId, solverWallet);
+      } catch (escrowError) {
+        console.error('Failed to set service provider on escrow:', escrowError.message);
+        // Continue — we still want to mark it claimed in our DB
+      }
+    }
+
+    // Update database
+    db.prepare(
+      'UPDATE bounties SET solverWallet = ?, status = ?, updatedAt = datetime(\'now\') WHERE id = ?'
+    ).run(solverWallet, 'claimed', bountyId);
+
+    const updated = db.prepare('SELECT * FROM bounties WHERE id = ?').get(bountyId);
+
+    console.log(`🎯 Bounty ${bountyId} claimed by ${solverWallet}`);
+    return res.json(updated);
+  } catch (error) {
+    console.error('Claim bounty error:', error);
+    return res.status(500).json({ error: 'Failed to claim bounty' });
+  }
+});
+
+/**
+ * GET /bounties
+ * List all bounties with optional status filter.
+ */
+router.get('/bounties', (req, res) => {
+  try {
+    const { status } = req.query;
+
+    let bounties;
+    if (status) {
+      bounties = db.prepare(
+        'SELECT * FROM bounties WHERE status = ? ORDER BY createdAt DESC'
+      ).all(status);
+    } else {
+      bounties = db.prepare(
+        'SELECT * FROM bounties ORDER BY createdAt DESC'
+      ).all();
+    }
+
+    return res.json(bounties);
+  } catch (error) {
+    console.error('List bounties error:', error);
+    return res.status(500).json({ error: 'Failed to fetch bounties' });
+  }
+});
+
+/**
+ * GET /bounty/:id
+ * Get a single bounty by ID.
+ */
+router.get('/bounty/:id', (req, res) => {
+  try {
+    const bounty = db.prepare('SELECT * FROM bounties WHERE id = ?').get(req.params.id);
+
+    if (!bounty) {
+      return res.status(404).json({ error: 'Bounty not found' });
+    }
+
+    return res.json(bounty);
+  } catch (error) {
+    console.error('Get bounty error:', error);
+    return res.status(500).json({ error: 'Failed to fetch bounty' });
+  }
+});
+
+module.exports = router;

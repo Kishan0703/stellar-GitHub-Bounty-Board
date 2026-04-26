@@ -1,0 +1,12 @@
+node_modules/
+.env
+.env.local
+*.db
+*.sqlite
+.next/
+dist/
+build/
+target/
+.DS_Store
+*.log
+prompts/
