@@ -100,3 +100,4 @@ To enable automated payouts, you must add a webhook to your GitHub repository:
 ## 📄 License
 
 This project is licensed under the MIT License.
+ 
