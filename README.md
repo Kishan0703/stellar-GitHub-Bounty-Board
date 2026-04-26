@@ -14,18 +14,6 @@ A decentralized, trustless platform for rewarding open-source contributions. Thi
 
 ---
 
-## 📸 Screenshots
-
-### Dashboard
-![Bounty Board](/Users/kishan/.gemini/antigravity/brain/31dc336d-088f-4b26-855a-982ffa58eb02/board_page.png)
-
-### Create Bounty
-![Create Bounty](/Users/kishan/.gemini/antigravity/brain/31dc336d-088f-4b26-855a-982ffa58eb02/create_page.png)
-
-### Bounty Details & Claiming
-![Bounty Detail](/Users/kishan/.gemini/antigravity/brain/31dc336d-088f-4b26-855a-982ffa58eb02/detail_page.png)
-
----
 
 ## 🛠️ Architecture
 
