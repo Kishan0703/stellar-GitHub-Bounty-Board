@@ -53,7 +53,7 @@ cp .env.example .env
 
 Edit the `.env` file with your credentials:
 - `TRUSTLESSWORK_API_KEY`: Your API key from [Trustless Work](https://trustlesswork.com).
-- `GITHUB_WEBHOOK_SECRET`: A secret string for verifying GitHub webhook signatures.
+- `GITHUB_WEBHOOK_SECRET`: Optional fallback secret for older bounties. New bounties collect a GitHub webhook secret in the create form.
 - `STELLAR_SOURCE_SECRET`: Your Stellar testnet wallet secret (for fee payments/escrow ops).
 - `GITHUB_TOKEN`: Personal Access Token for GitHub API access.
 
@@ -71,20 +71,22 @@ npm install
 npm run dev
 ```
 
-The application will be available at `http://localhost:3000`.
+The application will be available at `http://localhost:3000/bounties`.
 
 ---
 
 ## ⚓ Webhook Configuration
 
-To enable automated payouts, you must add a webhook to your GitHub repository:
+To enable automated payouts, add a webhook to the GitHub repository that owns the issue:
 
 1. Go to **Settings > Webhooks > Add webhook**.
 2. **Payload URL**: `https://your-backend-domain.com/webhook/github`
 3. **Content type**: `application/json`
-4. **Secret**: Must match `GITHUB_WEBHOOK_SECRET` in your `.env`.
+4. **Secret**: Use the same secret you enter when posting the bounty.
 5. **Which events**: Select **Let me select individual events** and check **Pull requests**.
 6. Ensure the PR body contains `Fixes #IssueNumber` to link it to a bounty.
+
+Each bounty stores its own webhook secret, so different repositories can use different webhook secrets without changing backend code.
 
 ---
 

@@ -6,27 +6,51 @@ const { initializeEscrow, setServiceProvider } = require('../trustlesswork');
 
 // TODO: add auth on all sensitive routes
 
+const PUBLIC_BOUNTY_COLUMNS = `
+  id, issueUrl, repoOwner, repoName, issueNumber, escrowId, escrowContractAddress,
+  posterWallet, solverWallet, amount, currency, status, title, description,
+  createdAt, updatedAt
+`;
+
 /**
  * POST /bounty/create
  * Create a new bounty backed by a Trustless Work escrow.
  */
 router.post('/bounty/create', async (req, res) => {
   try {
-    const { issueUrl, posterWallet, amount, title, description } = req.body;
+    const { issueUrl, posterWallet, amount, title, description, webhookSecret } = req.body;
 
     // Validate required fields
-    if (!issueUrl || !posterWallet || !amount || !title) {
+    if (!issueUrl || !posterWallet || !amount || !title || !webhookSecret) {
       return res.status(400).json({
-        error: 'Missing required fields: issueUrl, posterWallet, amount, title',
+        error: 'Missing required fields: issueUrl, posterWallet, amount, title, webhookSecret',
       });
+    }
+
+    const normalizedAmount = Number.parseFloat(amount);
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount < 1) {
+      return res.status(400).json({ error: 'Bounty amount must be at least 1 USDC' });
+    }
+
+    const trimmedWebhookSecret = String(webhookSecret).trim();
+    if (trimmedWebhookSecret.length < 8) {
+      return res.status(400).json({ error: 'Webhook secret must be at least 8 characters' });
     }
 
     // Parse GitHub issue URL
     // Expected format: https://github.com/owner/repo/issues/123
-    const urlPattern = /github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/;
-    const urlMatch = issueUrl.match(urlPattern);
+    let parsedIssueUrl;
+    try {
+      parsedIssueUrl = new URL(issueUrl);
+    } catch (urlError) {
+      return res.status(400).json({
+        error: 'Invalid GitHub issue URL. Expected format: https://github.com/owner/repo/issues/123',
+      });
+    }
 
-    if (!urlMatch) {
+    const urlMatch = parsedIssueUrl.pathname.match(/^\/([^/]+)\/([^/]+)\/issues\/(\d+)\/?$/);
+
+    if (parsedIssueUrl.hostname.toLowerCase() !== 'github.com' || !urlMatch) {
       return res.status(400).json({
         error: 'Invalid GitHub issue URL. Expected format: https://github.com/owner/repo/issues/123',
       });
@@ -34,9 +58,10 @@ router.post('/bounty/create', async (req, res) => {
 
     const [, repoOwner, repoName, issueNumberStr] = urlMatch;
     const issueNumber = parseInt(issueNumberStr, 10);
+    const normalizedIssueUrl = `https://github.com/${repoOwner}/${repoName}/issues/${issueNumber}`;
 
     // Check for duplicate
-    const existing = db.prepare('SELECT id FROM bounties WHERE issueUrl = ?').get(issueUrl);
+    const existing = db.prepare('SELECT id FROM bounties WHERE issueUrl = ?').get(normalizedIssueUrl);
     if (existing) {
       return res.status(409).json({ error: 'A bounty already exists for this issue' });
     }
@@ -50,7 +75,7 @@ router.post('/bounty/create', async (req, res) => {
       escrowData = await initializeEscrow({
         posterWallet,
         solverWallet: '',
-        amount,
+        amount: normalizedAmount.toFixed(2),
         title,
         description: description || '',
       });
@@ -62,27 +87,28 @@ router.post('/bounty/create', async (req, res) => {
 
     // Store in database
     const stmt = db.prepare(`
-      INSERT INTO bounties (id, issueUrl, repoOwner, repoName, issueNumber, escrowId, escrowContractAddress, posterWallet, amount, currency, status, title, description)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'USDC', 'open', ?, ?)
+      INSERT INTO bounties (id, issueUrl, repoOwner, repoName, issueNumber, escrowId, escrowContractAddress, posterWallet, amount, currency, status, title, description, webhookSecret)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'USDC', 'open', ?, ?, ?)
     `);
 
     stmt.run(
       id,
-      issueUrl,
+      normalizedIssueUrl,
       repoOwner,
       repoName,
       issueNumber,
       escrowData.escrowId || null,
       escrowData.contractAddress || null,
       posterWallet,
-      amount,
+      normalizedAmount.toFixed(2),
       title,
-      description || null
+      description || null,
+      trimmedWebhookSecret
     );
 
-    const bounty = db.prepare('SELECT * FROM bounties WHERE id = ?').get(id);
+    const bounty = db.prepare(`SELECT ${PUBLIC_BOUNTY_COLUMNS} FROM bounties WHERE id = ?`).get(id);
 
-    console.log(`🏆 Bounty created: ${title} (${amount} USDC) for ${issueUrl}`);
+    console.log(`🏆 Bounty created: ${title} (${normalizedAmount.toFixed(2)} USDC) for ${normalizedIssueUrl}`);
     return res.status(201).json(bounty);
   } catch (error) {
     console.error('Create bounty error:', error);
@@ -131,7 +157,7 @@ router.post('/bounty/claim', async (req, res) => {
       'UPDATE bounties SET solverWallet = ?, status = ?, updatedAt = datetime(\'now\') WHERE id = ?'
     ).run(solverWallet, 'claimed', bountyId);
 
-    const updated = db.prepare('SELECT * FROM bounties WHERE id = ?').get(bountyId);
+    const updated = db.prepare(`SELECT ${PUBLIC_BOUNTY_COLUMNS} FROM bounties WHERE id = ?`).get(bountyId);
 
     console.log(`🎯 Bounty ${bountyId} claimed by ${solverWallet}`);
     return res.json(updated);
@@ -152,11 +178,11 @@ router.get('/bounties', (req, res) => {
     let bounties;
     if (status) {
       bounties = db.prepare(
-        'SELECT * FROM bounties WHERE status = ? ORDER BY createdAt DESC'
+        `SELECT ${PUBLIC_BOUNTY_COLUMNS} FROM bounties WHERE status = ? ORDER BY createdAt DESC`
       ).all(status);
     } else {
       bounties = db.prepare(
-        'SELECT * FROM bounties ORDER BY createdAt DESC'
+        `SELECT ${PUBLIC_BOUNTY_COLUMNS} FROM bounties ORDER BY createdAt DESC`
       ).all();
     }
 
@@ -173,7 +199,7 @@ router.get('/bounties', (req, res) => {
  */
 router.get('/bounty/:id', (req, res) => {
   try {
-    const bounty = db.prepare('SELECT * FROM bounties WHERE id = ?').get(req.params.id);
+    const bounty = db.prepare(`SELECT ${PUBLIC_BOUNTY_COLUMNS} FROM bounties WHERE id = ?`).get(req.params.id);
 
     if (!bounty) {
       return res.status(404).json({ error: 'Bounty not found' });

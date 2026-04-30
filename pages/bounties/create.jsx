@@ -5,6 +5,12 @@ import { connectWallet, truncateWallet } from '../../lib/freighter';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4000';
 
+function generateWebhookSecret() {
+  const bytes = new Uint8Array(24);
+  window.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 export default function CreateBounty() {
   const [wallet, setWallet] = useState(null);
   const [connecting, setConnecting] = useState(false);
@@ -14,6 +20,7 @@ export default function CreateBounty() {
 
   const [form, setForm] = useState({
     issueUrl: '',
+    webhookSecret: '',
     amount: '',
     title: '',
     description: '',
@@ -50,7 +57,13 @@ export default function CreateBounty() {
       return;
     }
 
-    if (parseFloat(form.amount) < 1) {
+    if (!form.webhookSecret || form.webhookSecret.trim().length < 8) {
+      setError('Please enter a GitHub webhook secret with at least 8 characters.');
+      return;
+    }
+
+    const amount = parseFloat(form.amount);
+    if (!Number.isFinite(amount) || amount < 1) {
       setError('Bounty amount must be at least 1 USDC.');
       return;
     }
@@ -73,6 +86,7 @@ export default function CreateBounty() {
           amount: form.amount,
           title: form.title,
           description: form.description,
+          webhookSecret: form.webhookSecret,
         }),
       });
 
@@ -82,7 +96,7 @@ export default function CreateBounty() {
       }
 
       setSuccess(true);
-      setForm({ issueUrl: '', amount: '', title: '', description: '' });
+      setForm({ issueUrl: '', webhookSecret: '', amount: '', title: '', description: '' });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -169,6 +183,16 @@ export default function CreateBounty() {
 
           {/* Form */}
           <form onSubmit={handleSubmit}>
+            <div className="form-help">
+              <div>
+                <strong>Webhook endpoint</strong>
+                <span>{API_BASE}/webhook/github</span>
+              </div>
+              <p>
+                Add this URL to the GitHub repository webhook settings, select pull request events, and use the same secret you enter below.
+              </p>
+            </div>
+
             <div className="form-group">
               <label htmlFor="issueUrl">
                 GitHub Issue URL <span className="required">*</span>
@@ -183,6 +207,35 @@ export default function CreateBounty() {
                 onChange={handleChange}
                 required
               />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="webhookSecret">
+                GitHub Webhook Secret <span className="required">*</span>
+              </label>
+              <div className="input-action-row">
+                <input
+                  id="webhookSecret"
+                  name="webhookSecret"
+                  type="text"
+                  className="form-input"
+                  placeholder="Use the same secret in GitHub webhook settings"
+                  value={form.webhookSecret}
+                  onChange={handleChange}
+                  required
+                  minLength={8}
+                />
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setForm({ ...form, webhookSecret: generateWebhookSecret() });
+                    setError('');
+                  }}
+                >
+                  Generate
+                </button>
+              </div>
             </div>
 
             <div className="form-group">
