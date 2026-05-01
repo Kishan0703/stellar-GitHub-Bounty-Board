@@ -73,6 +73,20 @@ npm run dev
 
 The application will be available at `http://localhost:3000/bounties`.
 
+For local GitHub webhook testing, expose the backend with a public tunnel and point the frontend at that public URL:
+
+```bash
+ngrok http 4000
+```
+
+Then run the frontend with:
+
+```bash
+NEXT_PUBLIC_WEBHOOK_BASE=https://your-ngrok-domain.ngrok-free.app npm run dev
+```
+
+`NEXT_PUBLIC_API_BASE` can stay as `http://localhost:4000` for browser API calls. `NEXT_PUBLIC_WEBHOOK_BASE` is only the public URL shown for GitHub webhook setup.
+
 ---
 
 ## ⚓ Webhook Configuration
@@ -80,7 +94,7 @@ The application will be available at `http://localhost:3000/bounties`.
 To enable automated payouts, add a webhook to the GitHub repository that owns the issue:
 
 1. Go to **Settings > Webhooks > Add webhook**.
-2. **Payload URL**: `https://your-backend-domain.com/webhook/github`
+2. **Payload URL**: `https://your-public-backend-domain.com/webhook/github`
 3. **Content type**: `application/json`
 4. **Secret**: Use the same secret you enter when posting the bounty.
 5. **Which events**: Select **Let me select individual events** and check **Pull requests**.
@@ -102,4 +116,3 @@ Each bounty stores its own webhook secret, so different repositories can use dif
 ## 📄 License
 
 This project is licensed under the MIT License.
- 
