@@ -353,9 +353,20 @@ a:hover {
   border: 1px solid rgba(245, 158, 11, 0.2);
 }
 
+.status-badge.funded {
+  background: rgba(6, 182, 212, 0.1);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(6, 182, 212, 0.2);
+}
+
 .status-badge.claimed::before {
   background: var(--accent-yellow);
   box-shadow: 0 0 6px var(--accent-yellow);
+}
+
+.status-badge.funded::before {
+  background: var(--accent-cyan);
+  box-shadow: 0 0 6px var(--accent-cyan);
 }
 
 .status-badge.completed {
@@ -449,6 +460,23 @@ a:hover {
   background: rgba(16, 185, 129, 0.1);
   color: var(--accent-green);
   border-color: rgba(16, 185, 129, 0.25);
+}
+
+.btn-help {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-weight: 700;
+  margin-right: 0.5rem;
+}
+
+.btn-help:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
 }
 
 .btn-lg {
@@ -726,6 +754,12 @@ a:hover {
   margin-bottom: 1.25rem;
 }
 
+.claim-section .funding-address {
+  color: var(--text-primary);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.85rem;
+}
+
 .status-message {
   padding: 1.5rem;
   border-radius: var(--radius-lg);
@@ -748,6 +782,63 @@ a:hover {
 .status-message .icon {
   font-size: 2rem;
   margin-bottom: 0.5rem;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  padding: 1rem;
+}
+
+.modal-card {
+  width: min(560px, 100%);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+}
+
+.modal-card h3 {
+  margin-bottom: 0.75rem;
+}
+
+.modal-card p {
+  color: var(--text-secondary);
+  margin-bottom: 0.75rem;
+}
+
+.modal-mono {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: var(--text-primary);
+}
+
+.modal-list {
+  margin: 0 0 0.75rem 1.25rem;
+  color: var(--text-secondary);
+}
+
+.modal-list li {
+  margin-bottom: 0.35rem;
+}
+
+.modal-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-primary);
+  margin: 0.75rem 0 1rem;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 /* ── Empty State ── */

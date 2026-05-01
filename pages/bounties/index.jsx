@@ -43,12 +43,13 @@ export default function BountyBoard() {
   const stats = useMemo(() => {
     const total = bounties.length;
     const open = bounties.filter((b) => b.status === 'open').length;
+    const funded = bounties.filter((b) => b.status === 'funded').length;
     const claimed = bounties.filter((b) => b.status === 'claimed').length;
     const completed = bounties.filter((b) => b.status === 'completed').length;
     const totalValue = bounties
-      .filter((b) => b.status === 'open')
+      .filter((b) => b.status === 'funded')
       .reduce((sum, b) => sum + parseFloat(b.amount || 0), 0);
-    return { total, open, claimed, completed, totalValue };
+    return { total, open, funded, claimed, completed, totalValue };
   }, [bounties]);
 
   return (
@@ -57,7 +58,7 @@ export default function BountyBoard() {
         <title>Bounty Board — Stellar GitHub Bounties</title>
         <meta
           name="description"
-          content="Browse open GitHub bounties with USDC rewards locked in Stellar escrow. Claim bounties, submit PRs, and get paid automatically."
+          content="Browse GitHub bounties with USDC rewards held by a Stellar testnet platform wallet. Claim funded bounties, submit PRs, and get paid automatically."
         />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏆</text></svg>" />
@@ -77,10 +78,10 @@ export default function BountyBoard() {
       <div className="page-container">
         {/* Header */}
         <div className="page-header">
-          <div className="subtitle-badge">⚡ Powered by Stellar &amp; Trustless Work</div>
+          <div className="subtitle-badge">⚡ Powered by Stellar Testnet</div>
           <h1>GitHub Bounty Board</h1>
           <p>
-            Trustless bounties for open source. Post issues with USDC rewards, solve them, and get paid automatically when your PR merges.
+            Post issues with USDC rewards, solve them, and get paid automatically from the platform wallet when your PR merges.
           </p>
           <div className="header-actions">
             <Link href="/bounties/create" className="btn btn-primary btn-lg">
@@ -100,18 +101,18 @@ export default function BountyBoard() {
             <div className="stat-label">Open</div>
           </div>
           <div className="stat-card">
-            <div className="stat-value">{stats.claimed}</div>
-            <div className="stat-label">In Progress</div>
+            <div className="stat-value">{stats.funded}</div>
+            <div className="stat-label">Funded</div>
           </div>
           <div className="stat-card">
             <div className="stat-value">${stats.totalValue.toFixed(0)}</div>
-            <div className="stat-label">Available USDC</div>
+            <div className="stat-label">Claimable USDC</div>
           </div>
         </div>
 
         {/* Filters */}
         <div className="filter-bar">
-          {['all', 'open', 'claimed', 'completed'].map((f) => (
+          {['all', 'open', 'funded', 'claimed', 'completed'].map((f) => (
             <button
               key={f}
               className={`filter-btn ${filter === f ? 'active' : ''}`}

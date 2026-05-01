@@ -5,6 +5,13 @@ import Link from 'next/link';
 import { connectWallet, truncateWallet } from '../../lib/freighter';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4000';
+const TRUSTLINE_ACK_KEY = 'stellar_bounty_trustline_ack_v1';
+const DEMO_PUBLIC_KEY = 'GBOBF74KOXPSYUOLNZAIWLT5LT2FUDPDIPTPNHVYXGX2EDMSNDBHEH4U';
+
+function maskPublicKey(key) {
+  if (!key || key.length < 16) return key;
+  return `${key.slice(0, 6)}...${key.slice(-6)}`;
+}
 
 export default function BountyDetail() {
   const router = useRouter();
@@ -13,14 +20,30 @@ export default function BountyDetail() {
   const [bounty, setBounty] = useState(null);
   const [loading, setLoading] = useState(true);
   const [wallet, setWallet] = useState(null);
+  const [platformWallet, setPlatformWallet] = useState(null);
   const [claiming, setClaiming] = useState(false);
+  const [funding, setFunding] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState('');
   const [claimSuccess, setClaimSuccess] = useState(false);
+  const [fundSuccess, setFundSuccess] = useState(false);
+  const [showTrustlineNotice, setShowTrustlineNotice] = useState(false);
+  const [trustlineChecked, setTrustlineChecked] = useState(false);
+  const [trustlineAcknowledged, setTrustlineAcknowledged] = useState(false);
 
   useEffect(() => {
     if (id) fetchBounty();
   }, [id]);
+
+  useEffect(() => {
+    fetchPlatformWallet();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const stored = window.localStorage.getItem(TRUSTLINE_ACK_KEY) === 'true';
+    setTrustlineAcknowledged(stored);
+  }, []);
 
   async function fetchBounty() {
     try {
@@ -35,6 +58,18 @@ export default function BountyDetail() {
       setError('Failed to load bounty');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchPlatformWallet() {
+    try {
+      const res = await fetch(`${API_BASE}/platform-wallet`);
+      if (res.ok) {
+        const data = await res.json();
+        setPlatformWallet(data.publicKey);
+      }
+    } catch (err) {
+      console.error('Failed to fetch platform wallet:', err);
     }
   }
 
@@ -77,6 +112,54 @@ export default function BountyDetail() {
       setError(err.message);
     } finally {
       setClaiming(false);
+    }
+  }
+
+  function openTrustlineNotice() {
+    setTrustlineChecked(false);
+    setShowTrustlineNotice(true);
+  }
+
+  async function handleClaimClick() {
+    if (!trustlineAcknowledged) {
+      openTrustlineNotice();
+      return;
+    }
+
+    await handleClaim();
+  }
+
+  async function handleTrustlineConfirm() {
+    if (!trustlineChecked) return;
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(TRUSTLINE_ACK_KEY, 'true');
+    }
+    setTrustlineAcknowledged(true);
+    setShowTrustlineNotice(false);
+    await handleClaim();
+  }
+
+  async function handleMarkFunded() {
+    setFunding(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_BASE}/bounty/fund`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bountyId: id }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to mark bounty funded');
+      }
+
+      setFundSuccess(true);
+      await fetchBounty();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setFunding(false);
     }
   }
 
@@ -209,17 +292,17 @@ export default function BountyDetail() {
                 </div>
               )}
 
-              {bounty.escrowContractAddress && (
+              {bounty.completedTxHash && (
                 <div className="detail-item">
-                  <div className="label">Escrow Contract</div>
+                  <div className="label">Payment Transaction</div>
                   <div className="value mono">
                     <a
-                      href={`https://stellar.expert/explorer/testnet/contract/${bounty.escrowContractAddress}`}
+                      href={`https://stellar.expert/explorer/testnet/tx/${bounty.completedTxHash}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{ color: 'var(--accent-cyan)' }}
                     >
-                      {truncateWallet(bounty.escrowContractAddress)} ↗
+                      {truncateWallet(bounty.completedTxHash)} ↗
                     </a>
                   </div>
                 </div>
@@ -256,8 +339,51 @@ export default function BountyDetail() {
               </div>
             )}
 
+            {fundSuccess && (
+              <div className="alert alert-success">
+                ✅ Bounty marked funded. Solvers can now claim it.
+              </div>
+            )}
+
             {/* Status-specific actions */}
             {bounty.status === 'open' && (
+              <div className="claim-section">
+                <h3>💰 Fund This Bounty</h3>
+                <p>
+                  Send {bounty.amount} USDC on Stellar testnet to the platform wallet configured in the backend,
+                  then mark this bounty funded so solvers can claim it.
+                </p>
+                {platformWallet && (
+                  <p className="funding-address">
+                    Platform wallet:{' '}
+                    <a
+                      href={`https://stellar.expert/explorer/testnet/account/${platformWallet}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {truncateWallet(platformWallet)} ↗
+                    </a>
+                  </p>
+                )}
+                <button
+                  className="btn btn-primary"
+                  onClick={handleMarkFunded}
+                  disabled={funding}
+                  type="button"
+                >
+                  {funding ? (
+                    <>
+                      <span className="spinner" />
+                      Marking Funded...
+                    </>
+                  ) : (
+                    'Mark Funded'
+                  )}
+                </button>
+              </div>
+            )}
+
+            {bounty.status === 'funded' && (
               <div className="claim-section">
                 <h3>🎯 Claim This Bounty</h3>
                 <p>
@@ -288,8 +414,17 @@ export default function BountyDetail() {
                       Connected: {truncateWallet(wallet)}
                     </p>
                     <button
+                      className="btn btn-help"
+                      onClick={openTrustlineNotice}
+                      type="button"
+                      aria-label="Claim trustline help"
+                      title="Claim trustline help"
+                    >
+                      ?
+                    </button>
+                    <button
                       className="btn btn-primary"
-                      onClick={handleClaim}
+                      onClick={handleClaimClick}
                       disabled={claiming}
                       type="button"
                     >
@@ -327,15 +462,15 @@ export default function BountyDetail() {
                   This bounty has been completed. {bounty.amount} USDC was released
                   to {truncateWallet(bounty.solverWallet)}.
                 </p>
-                {bounty.escrowContractAddress && (
+                {bounty.completedTxHash && (
                   <a
-                    href={`https://stellar.expert/explorer/testnet/contract/${bounty.escrowContractAddress}`}
+                    href={`https://stellar.expert/explorer/testnet/tx/${bounty.completedTxHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="btn btn-secondary"
                     style={{ marginTop: '1rem' }}
                   >
-                    View on Stellar Explorer ↗
+                    View Payment on Stellar Expert ↗
                   </a>
                 )}
               </div>
@@ -343,6 +478,53 @@ export default function BountyDetail() {
           </div>
         </div>
       </div>
+
+      {showTrustlineNotice && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="trustline-title">
+          <div className="modal-card">
+            <h3 id="trustline-title">Before claiming</h3>
+            <p>
+              ⚠️ Before claiming, ensure your Freighter wallet has a USDC trustline set up on Stellar testnet.
+            </p>
+            <p>
+              For demo/testing, use this pre-configured test wallet:
+              <br />
+              Public Key: <span className="modal-mono">{maskPublicKey(DEMO_PUBLIC_KEY)}</span>
+            </p>
+            <p>To import in Freighter:</p>
+            <ol className="modal-list">
+              <li>Open Freighter → Add Account → Import</li>
+              <li>Enter the test secret key (provided in submission notes)</li>
+              <li>Switch network to Testnet in Freighter settings</li>
+            </ol>
+            <label className="modal-check">
+              <input
+                type="checkbox"
+                checked={trustlineChecked}
+                onChange={(e) => setTrustlineChecked(e.target.checked)}
+              />
+              <span>I have USDC trustline set up</span>
+            </label>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowTrustlineNotice(false)}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleTrustlineConfirm}
+                disabled={!trustlineChecked || claiming}
+              >
+                Continue to Claim
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

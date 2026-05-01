@@ -24,6 +24,7 @@ db.exec(`
     title TEXT,
     description TEXT,
     webhookSecret TEXT,
+    completedTxHash TEXT,
     createdAt TEXT DEFAULT (datetime('now')),
     updatedAt TEXT
   )
@@ -34,6 +35,10 @@ const hasColumn = (name) => columns.some((column) => column.name === name);
 
 if (!hasColumn('webhookSecret')) {
   db.exec('ALTER TABLE bounties ADD COLUMN webhookSecret TEXT');
+}
+
+if (!hasColumn('completedTxHash')) {
+  db.exec('ALTER TABLE bounties ADD COLUMN completedTxHash TEXT');
 }
 
 module.exports = db;

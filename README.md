@@ -1,118 +1,156 @@
-# 🏆 Stellar GitHub Bounty Board
+# Stellar GitHub Bounty Board (Testnet)
 
-A decentralized, trustless platform for rewarding open-source contributions. This project enables maintainers to post USDC bounties on GitHub issues, which are locked in Stellar escrow and automatically released to contributors when their pull requests are merged.
+GitHub bounty board on Stellar testnet where:
+- Maintainers post bounties for GitHub issues (USDC amount).
+- Solvers claim funded bounties.
+- On PR merge webhook, backend sends USDC from the platform wallet to solver.
+- Completed payout is visible on Stellar Expert.
 
----
+## Current Flow
 
-## 🌟 Key Features
+1. Create bounty: status `open`.
+2. Maintainer sends USDC to platform wallet and marks bounty as `funded`.
+3. Solver claims bounty: status `claimed`.
+4. GitHub PR merged with `Closes #X` / `Fixes #X` / `Resolves #X`.
+5. Backend webhook pays solver in USDC and marks bounty `completed` with `completedTxHash`.
 
-- **Trustless Escrow**: Rewards are locked in on-chain escrow contracts using the **Trustless Work** protocol on Stellar Testnet.
-- **Automated Payouts**: Integrated with GitHub Webhooks to release funds automatically the moment a qualifying Pull Request is merged.
-- **Freighter Wallet Integration**: Seamlessly connect your Stellar wallet to post or claim bounties.
-- **Real-time Tracking**: Dashboard to monitor open, claimed, and completed bounties with live stats.
-- **Premium UI**: Modern, glassmorphism-inspired dark theme designed for a premium developer experience.
+## Tech Stack
 
----
+- Frontend: Next.js 14 + Freighter wallet
+- Backend: Node.js (CommonJS), Express, better-sqlite3
+- Chain: Stellar testnet via `@stellar/stellar-sdk`
 
+## Prerequisites
 
-## 🛠️ Architecture
+- Node.js 18+ (or 20+ recommended)
+- Freighter browser extension
+- GitHub repo admin access (for webhook setup)
+- Testnet wallet(s) with XLM for fees and USDC trustlines
 
-```mermaid
-graph TD
-    A[Maintainer] -->|Posts Bounty| B(Next.js Frontend)
-    B -->|Calls API| C{Node.js Backend}
-    C -->|Initializes Escrow| D[Trustless Work API]
-    D -->|Deploys Contract| E[Stellar Testnet]
-    
-    F[Contributor] -->|Claims Bounty| B
-    F -->|Submits PR| G[GitHub Repo]
-    
-    G -->|PR Merged Webhook| C
-    C -->|Verifies & Releases| D
-    D -->|Release Funds| E
-    E -->|USDC| F
+## Environment Variables
+
+Backend env file: [webhook-server/.env.example](/Users/kishan/projects/stellar-GitHub-Bounty-Board/webhook-server/.env.example)
+
+Required:
+- `GITHUB_WEBHOOK_SECRET`
+- `PLATFORM_SECRET_KEY`
+- `PORT` (default `4000`)
+
+Recommended defaults:
+- `STELLAR_HORIZON_URL=https://horizon-testnet.stellar.org`
+- `USDC_ASSET_CODE=USDC`
+- `USDC_ASSET_ISSUER=GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5`
+
+Optional:
+- `GITHUB_TOKEN`
+- `USDC_FUNDER_SECRET_KEY`, `SETUP_USDC_AMOUNT` (used by setup script to seed platform wallet with test USDC)
+
+## How To Run
+
+### 1. Install dependencies
+
+Root (frontend):
+```bash
+npm install
 ```
 
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- **Node.js** (v18+ recommended)
-- **Freighter Wallet** extension installed in your browser.
-- A **GitHub Repository** where you have admin access to set up webhooks.
-
-### 1. Backend Setup
-
+Backend:
 ```bash
 cd webhook-server
 npm install
 cp .env.example .env
 ```
 
-Edit the `.env` file with your credentials:
-- `TRUSTLESSWORK_API_KEY`: Your API key from [Trustless Work](https://trustlesswork.com).
-- `GITHUB_WEBHOOK_SECRET`: Optional fallback secret for older bounties. New bounties collect a GitHub webhook secret in the create form.
-- `STELLAR_SOURCE_SECRET`: Your Stellar testnet wallet secret (for fee payments/escrow ops).
-- `GITHUB_TOKEN`: Personal Access Token for GitHub API access.
+### 2. Configure backend `.env`
 
-Run the server:
+Edit [webhook-server/.env](/Users/kishan/projects/stellar-GitHub-Bounty-Board/webhook-server/.env) and set:
+- `GITHUB_WEBHOOK_SECRET`
+- `PLATFORM_SECRET_KEY`
+
+### 3. Set up platform wallet (one-time)
+
+From `webhook-server`:
+```bash
+npm run setup:platform-wallet
+```
+
+This script:
+- Creates/uses platform wallet from `PLATFORM_SECRET_KEY`
+- Funds account with Friendbot XLM if account is missing
+- Creates USDC trustline on testnet
+- Optionally seeds USDC if `USDC_FUNDER_SECRET_KEY` and `SETUP_USDC_AMOUNT` are set
+
+### 4. Start backend
+
+From `webhook-server`:
 ```bash
 npm run dev
 ```
 
-### 2. Frontend Setup
+Backend endpoints:
+- `GET /health`
+- `GET /bounties`
+- `GET /bounty/:id`
+- `POST /bounty/create`
+- `POST /bounty/fund`
+- `POST /bounty/claim`
+- `POST /webhook/github`
 
-In the root directory:
+### 5. Start frontend
 
+From project root:
 ```bash
-npm install
 npm run dev
 ```
 
-The application will be available at `http://localhost:3000/bounties`.
+Open:
+- `http://localhost:3000/bounties`
 
-For local GitHub webhook testing, expose the backend with a public tunnel and point the frontend at that public URL:
+If backend is on non-default host/port:
+```bash
+NEXT_PUBLIC_API_BASE=http://localhost:4000 npm run dev
+```
+
+### 6. Expose backend for GitHub webhook (local dev)
 
 ```bash
 ngrok http 4000
 ```
 
-Then run the frontend with:
-
+Set:
 ```bash
-NEXT_PUBLIC_WEBHOOK_BASE=https://your-ngrok-domain.ngrok-free.app npm run dev
+NEXT_PUBLIC_WEBHOOK_BASE=https://<your-ngrok-domain>.ngrok-free.app
 ```
 
-`NEXT_PUBLIC_API_BASE` can stay as `http://localhost:4000` for browser API calls. `NEXT_PUBLIC_WEBHOOK_BASE` is only the public URL shown for GitHub webhook setup.
+Then restart frontend so bounty create page shows public webhook URL.
 
----
+## GitHub Webhook Setup
 
-## ⚓ Webhook Configuration
+In target repo:
+1. Go to `Settings -> Webhooks -> Add webhook`
+2. Payload URL: `https://<public-backend>/webhook/github`
+3. Content type: `application/json`
+4. Secret: same as bounty webhook secret
+5. Events: select `Pull requests`
 
-To enable automated payouts, add a webhook to the GitHub repository that owns the issue:
+PR body/title must include one of:
+- `Closes #<issue>`
+- `Fixes #<issue>`
+- `Resolves #<issue>`
 
-1. Go to **Settings > Webhooks > Add webhook**.
-2. **Payload URL**: `https://your-public-backend-domain.com/webhook/github`
-3. **Content type**: `application/json`
-4. **Secret**: Use the same secret you enter when posting the bounty.
-5. **Which events**: Select **Let me select individual events** and check **Pull requests**.
-6. Ensure the PR body contains `Fixes #IssueNumber` to link it to a bounty.
+## End-to-End Test
 
-Each bounty stores its own webhook secret, so different repositories can use different webhook secrets without changing backend code.
+1. Connect poster wallet and create bounty from `/bounties/create`.
+2. Send bounty USDC to platform wallet.
+3. Open bounty detail and click `Mark Funded`.
+4. Connect solver wallet and claim bounty.
+5. Create and merge PR with `Fixes #<issue-number>`.
+6. Confirm webhook response includes `released[].transactionHash`.
+7. Verify bounty status is `completed` and link opens:
+   `https://stellar.expert/explorer/testnet/tx/<hash>`
 
----
+## Notes
 
-## 🧰 Tech Stack
-
-- **Frontend**: Next.js 14, React, Vanilla CSS (Design System)
-- **Backend**: Node.js, Express, Better-SQLite3
-- **Blockchain**: Stellar Network, Trustless Work Protocol
-- **Wallet**: @stellar/freighter-api
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License.
+- Platform wallet must keep enough XLM for transaction fees.
+- Solver wallet must already have USDC trustline, or payout will fail.
+- Bounties are stored in local SQLite (`webhook-server/bounties.db`).

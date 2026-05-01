@@ -1,9 +1,22 @@
 import { useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
+import {
+  Asset,
+  BASE_FEE,
+  Horizon,
+  Networks,
+  Operation,
+  TransactionBuilder,
+} from '@stellar/stellar-sdk';
+import { signTransaction } from '@stellar/freighter-api';
 import { connectWallet, truncateWallet } from '../../lib/freighter';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4000';
+const WEBHOOK_BASE = process.env.NEXT_PUBLIC_WEBHOOK_BASE || API_BASE;
+const HORIZON_URL = 'https://horizon-testnet.stellar.org';
+const USDC_ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
+const USDC_ASSET = new Asset('USDC', USDC_ISSUER);
 
 function generateWebhookSecret() {
   const bytes = new Uint8Array(24);
@@ -43,6 +56,67 @@ export default function CreateBounty() {
     setError('');
   }
 
+  async function getPlatformWalletPublicKey() {
+    const envWallet = process.env.NEXT_PUBLIC_PLATFORM_WALLET_PUBLIC;
+    if (envWallet) {
+      return envWallet;
+    }
+
+    const res = await fetch(`${API_BASE}/platform-wallet`);
+    if (!res.ok) {
+      throw new Error('Failed to fetch platform wallet');
+    }
+
+    const data = await res.json();
+    if (!data.publicKey) {
+      throw new Error('Platform wallet is not configured');
+    }
+
+    return data.publicKey;
+  }
+
+  function extractSignedXdr(signResult) {
+    if (typeof signResult === 'string') return signResult;
+    if (signResult?.signedTxXdr) return signResult.signedTxXdr;
+    if (signResult?.signedXDR) return signResult.signedXDR;
+    if (signResult?.xdr) return signResult.xdr;
+    return null;
+  }
+
+  async function transferUsdcToPlatform({ sourcePublicKey, destinationPublicKey, amount }) {
+    const server = new Horizon.Server(HORIZON_URL);
+    const account = await server.loadAccount(sourcePublicKey);
+    const stroopAmount = Number.parseFloat(amount).toFixed(7).replace(/0+$/, '').replace(/\.$/, '');
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: Networks.TESTNET,
+    })
+      .addOperation(
+        Operation.payment({
+          destination: destinationPublicKey,
+          asset: USDC_ASSET,
+          amount: stroopAmount,
+        })
+      )
+      .setTimeout(120)
+      .build();
+
+    const signed = await signTransaction(tx.toXDR(), {
+      networkPassphrase: Networks.TESTNET,
+      address: sourcePublicKey,
+    });
+
+    const signedXdr = extractSignedXdr(signed);
+    if (!signedXdr) {
+      throw new Error('Transaction signing failed or was rejected');
+    }
+
+    const signedTx = TransactionBuilder.fromXDR(signedXdr, Networks.TESTNET);
+    const result = await server.submitTransaction(signedTx);
+    return result.hash;
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
@@ -77,6 +151,13 @@ export default function CreateBounty() {
 
     setLoading(true);
     try {
+      const platformWalletPublicKey = await getPlatformWalletPublicKey();
+      await transferUsdcToPlatform({
+        sourcePublicKey: wallet,
+        destinationPublicKey: platformWalletPublicKey,
+        amount: form.amount,
+      });
+
       const res = await fetch(`${API_BASE}/bounty/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -110,7 +191,7 @@ export default function CreateBounty() {
         <title>Post a Bounty — Stellar GitHub Bounties</title>
         <meta
           name="description"
-          content="Post a GitHub issue bounty with USDC rewards locked in Stellar escrow. Reward open source contributors for solving your issues."
+          content="Post a GitHub issue bounty with USDC rewards held by a Stellar testnet platform wallet. Reward open source contributors for solving your issues."
         />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
@@ -131,7 +212,7 @@ export default function CreateBounty() {
           <div className="subtitle-badge">💰 Create New Bounty</div>
           <h1>Post a Bounty</h1>
           <p>
-            Attach a USDC reward to any GitHub issue. Funds are locked in escrow and released automatically when a solver&apos;s PR is merged.
+            Attach a USDC reward to any GitHub issue. Fund the platform wallet, then release automatically when a solver&apos;s PR is merged.
           </p>
         </div>
 
@@ -144,7 +225,7 @@ export default function CreateBounty() {
                 <div className="wallet-address">{truncateWallet(wallet)}</div>
               ) : (
                 <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                  Connect to deposit bounty funds
+                  Connect to identify the bounty poster
                 </div>
               )}
             </div>
@@ -170,7 +251,7 @@ export default function CreateBounty() {
           {/* Alerts */}
           {success && (
             <div className="alert alert-success">
-              ✅ Bounty created successfully!{' '}
+              ✅ Bounty created and funded successfully.{' '}
               <Link href="/bounties" style={{ fontWeight: 600, textDecoration: 'underline' }}>
                 View Bounty Board →
               </Link>
@@ -186,7 +267,7 @@ export default function CreateBounty() {
             <div className="form-help">
               <div>
                 <strong>Webhook endpoint</strong>
-                <span>{API_BASE}/webhook/github</span>
+                <span>{WEBHOOK_BASE}/webhook/github</span>
               </div>
               <p>
                 Add this URL to the GitHub repository webhook settings, select pull request events, and use the same secret you enter below.

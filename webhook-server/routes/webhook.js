@@ -2,7 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 const db = require('../db');
-const { releaseEscrow } = require('../trustlesswork');
+const { sendUsdcToSolver } = require('../stellar');
 
 // TODO: add auth — webhook signature verification is the primary security here
 
@@ -22,7 +22,7 @@ function signatureMatches(rawBody, signature, secret) {
 /**
  * POST /webhook/github
  * Receives GitHub webhook events for pull_request merges.
- * Verifies signature, checks for linked issues, and auto-releases escrow.
+ * Verifies signature, checks for linked issues, and pays claimed bounties.
  */
 router.post(
   '/github',
@@ -72,7 +72,7 @@ router.post(
         return res.status(200).json({ message: 'PR not merged, ignoring' });
       }
 
-      console.log(`🔀 Merged PR #${payload.pull_request.number} in ${payload.repository.full_name}`);
+      console.log(`Merged PR #${payload.pull_request.number} in ${payload.repository.full_name}`);
 
       // 5. Search PR title/body for linked issue: Fixes #123, Closes owner/repo#123.
       const prText = `${payload.pull_request.title || ''}\n${payload.pull_request.body || ''}`;
@@ -84,10 +84,13 @@ router.post(
         return res.status(200).json({ message: 'No linked issues found' });
       }
 
+      const released = [];
+      const errors = [];
+
       // 6. Process each linked issue
       for (const match of matches) {
         const issueNumber = parseInt(match[1], 10);
-        console.log(`🔍 Looking up bounty for ${repoOwner}/${repoName}#${issueNumber}`);
+        console.log(`Looking up bounty for ${repoOwner}/${repoName}#${issueNumber}`);
 
         const bounty = db.prepare(
           `SELECT * FROM bounties
@@ -101,34 +104,64 @@ router.post(
           continue;
         }
 
+        if (bounty.status === 'completed' && bounty.completedTxHash) {
+          released.push({
+            bountyId: bounty.id,
+            issueNumber,
+            transactionHash: bounty.completedTxHash,
+            alreadyCompleted: true,
+          });
+          continue;
+        }
+
         if (bounty.status !== 'claimed') {
-          console.log(`Bounty ${bounty.id} is ${bounty.status}, not claimed — skipping`);
+          console.log(`Bounty ${bounty.id} is ${bounty.status}, not claimed; skipping`);
           continue;
         }
 
-        if (!bounty.escrowId) {
-          console.log(`Bounty ${bounty.id} has no escrow ID — skipping release`);
+        if (!bounty.solverWallet) {
+          console.log(`Bounty ${bounty.id} has no solver wallet; skipping`);
           continue;
         }
 
-        // 7. Release escrow via Trustless Work API
+        // 7. Send USDC from the platform wallet to the solver wallet.
         try {
-          console.log(`💰 Releasing escrow ${bounty.escrowId} for bounty ${bounty.id}`);
-          await releaseEscrow(bounty.escrowId);
+          console.log(`Sending ${bounty.amount} USDC for bounty ${bounty.id} to ${bounty.solverWallet}`);
+          const transfer = await sendUsdcToSolver({
+            solverWallet: bounty.solverWallet,
+            amount: bounty.amount,
+            memo: `bounty ${bounty.issueNumber}`,
+          });
 
           // 8. Update bounty status
           db.prepare(
-            'UPDATE bounties SET status = ?, updatedAt = datetime(\'now\') WHERE id = ?'
-          ).run('completed', bounty.id);
+            'UPDATE bounties SET status = ?, completedTxHash = ?, updatedAt = datetime(\'now\') WHERE id = ?'
+          ).run('completed', transfer.hash, bounty.id);
 
-          console.log(`✅ Bounty ${bounty.id} completed! Funds released to ${bounty.solverWallet}`);
-        } catch (releaseError) {
-          console.error(`Failed to release escrow for bounty ${bounty.id}:`, releaseError.message);
+          released.push({
+            bountyId: bounty.id,
+            issueNumber,
+            transactionHash: transfer.hash,
+            stellarExpertUrl: `https://stellar.expert/explorer/testnet/tx/${transfer.hash}`,
+          });
+
+          console.log(`Bounty ${bounty.id} completed. Transaction: ${transfer.hash}`);
+        } catch (transferError) {
+          console.error(`Failed to pay bounty ${bounty.id}:`, transferError.message);
+          errors.push({
+            bountyId: bounty.id,
+            issueNumber,
+            error: transferError.message,
+          });
           // Don't fail the webhook — GitHub needs a 200
         }
       }
 
-      return res.status(200).json({ message: 'Webhook processed' });
+      return res.status(200).json({
+        message: 'Webhook processed',
+        released,
+        errors,
+      });
     } catch (error) {
       console.error('Webhook processing error:', error);
       // Always return 200 to GitHub to avoid retries on our errors

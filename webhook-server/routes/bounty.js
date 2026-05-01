@@ -2,19 +2,19 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 const db = require('../db');
-const { initializeEscrow, setServiceProvider } = require('../trustlesswork');
+const { getPlatformPublicKey } = require('../stellar');
 
 // TODO: add auth on all sensitive routes
 
 const PUBLIC_BOUNTY_COLUMNS = `
   id, issueUrl, repoOwner, repoName, issueNumber, escrowId, escrowContractAddress,
   posterWallet, solverWallet, amount, currency, status, title, description,
-  createdAt, updatedAt
+  completedTxHash, createdAt, updatedAt
 `;
 
 /**
  * POST /bounty/create
- * Create a new bounty backed by a Trustless Work escrow.
+ * Create a new bounty. Funds are held by the platform wallet after manual deposit.
  */
 router.post('/bounty/create', async (req, res) => {
   try {
@@ -69,26 +69,10 @@ router.post('/bounty/create', async (req, res) => {
     // Generate unique ID
     const id = crypto.randomUUID();
 
-    // Initialize escrow via Trustless Work API
-    let escrowData = {};
-    try {
-      escrowData = await initializeEscrow({
-        posterWallet,
-        solverWallet: '',
-        amount: normalizedAmount.toFixed(2),
-        title,
-        description: description || '',
-      });
-    } catch (escrowError) {
-      console.error('Escrow initialization failed:', escrowError.message);
-      // Still create the bounty, but without escrow — can be linked later
-      // This allows the app to function even if the API is temporarily down
-    }
-
     // Store in database
     const stmt = db.prepare(`
-      INSERT INTO bounties (id, issueUrl, repoOwner, repoName, issueNumber, escrowId, escrowContractAddress, posterWallet, amount, currency, status, title, description, webhookSecret)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'USDC', 'open', ?, ?, ?)
+      INSERT INTO bounties (id, issueUrl, repoOwner, repoName, issueNumber, posterWallet, amount, currency, status, title, description, webhookSecret)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'USDC', 'funded', ?, ?, ?)
     `);
 
     stmt.run(
@@ -97,8 +81,6 @@ router.post('/bounty/create', async (req, res) => {
       repoOwner,
       repoName,
       issueNumber,
-      escrowData.escrowId || null,
-      escrowData.contractAddress || null,
       posterWallet,
       normalizedAmount.toFixed(2),
       title,
@@ -108,8 +90,11 @@ router.post('/bounty/create', async (req, res) => {
 
     const bounty = db.prepare(`SELECT ${PUBLIC_BOUNTY_COLUMNS} FROM bounties WHERE id = ?`).get(id);
 
-    console.log(`🏆 Bounty created: ${title} (${normalizedAmount.toFixed(2)} USDC) for ${normalizedIssueUrl}`);
-    return res.status(201).json(bounty);
+    console.log(`Bounty created: ${title} (${normalizedAmount.toFixed(2)} USDC) for ${normalizedIssueUrl}`);
+    return res.status(201).json({
+      ...bounty,
+      platformWallet: getPlatformPublicKey(),
+    });
   } catch (error) {
     console.error('Create bounty error:', error);
     return res.status(500).json({ error: 'Failed to create bounty' });
@@ -117,8 +102,45 @@ router.post('/bounty/create', async (req, res) => {
 });
 
 /**
+ * POST /bounty/fund
+ * Mark a bounty funded after USDC has been sent to the platform wallet.
+ */
+router.post('/bounty/fund', async (req, res) => {
+  try {
+    const { bountyId } = req.body;
+
+    if (!bountyId) {
+      return res.status(400).json({ error: 'Missing required field: bountyId' });
+    }
+
+    const bounty = db.prepare('SELECT * FROM bounties WHERE id = ?').get(bountyId);
+
+    if (!bounty) {
+      return res.status(404).json({ error: 'Bounty not found' });
+    }
+
+    if (bounty.status !== 'open') {
+      return res.status(400).json({
+        error: `Bounty is ${bounty.status}, only open bounties can be marked funded`,
+      });
+    }
+
+    db.prepare(
+      'UPDATE bounties SET status = ?, updatedAt = datetime(\'now\') WHERE id = ?'
+    ).run('funded', bountyId);
+
+    const updated = db.prepare(`SELECT ${PUBLIC_BOUNTY_COLUMNS} FROM bounties WHERE id = ?`).get(bountyId);
+    console.log(`Bounty ${bountyId} marked funded`);
+    return res.json(updated);
+  } catch (error) {
+    console.error('Fund bounty error:', error);
+    return res.status(500).json({ error: 'Failed to mark bounty funded' });
+  }
+});
+
+/**
  * POST /bounty/claim
- * Claim an open bounty as a solver.
+ * Claim a funded bounty as a solver.
  */
 router.post('/bounty/claim', async (req, res) => {
   try {
@@ -136,20 +158,10 @@ router.post('/bounty/claim', async (req, res) => {
       return res.status(404).json({ error: 'Bounty not found' });
     }
 
-    if (bounty.status !== 'open') {
+    if (bounty.status !== 'funded') {
       return res.status(400).json({
-        error: `Bounty is ${bounty.status}, only open bounties can be claimed`,
+        error: `Bounty is ${bounty.status}, only funded bounties can be claimed`,
       });
-    }
-
-    // Update service provider on escrow
-    if (bounty.escrowId) {
-      try {
-        await setServiceProvider(bounty.escrowId, solverWallet);
-      } catch (escrowError) {
-        console.error('Failed to set service provider on escrow:', escrowError.message);
-        // Continue — we still want to mark it claimed in our DB
-      }
     }
 
     // Update database
@@ -159,11 +171,26 @@ router.post('/bounty/claim', async (req, res) => {
 
     const updated = db.prepare(`SELECT ${PUBLIC_BOUNTY_COLUMNS} FROM bounties WHERE id = ?`).get(bountyId);
 
-    console.log(`🎯 Bounty ${bountyId} claimed by ${solverWallet}`);
+    console.log(`Bounty ${bountyId} claimed by ${solverWallet}`);
     return res.json(updated);
   } catch (error) {
     console.error('Claim bounty error:', error);
     return res.status(500).json({ error: 'Failed to claim bounty' });
+  }
+});
+
+router.get('/platform-wallet', (req, res) => {
+  try {
+    return res.json({
+      publicKey: getPlatformPublicKey(),
+      network: 'testnet',
+      asset: {
+        code: 'USDC',
+        issuer: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
   }
 });
 
