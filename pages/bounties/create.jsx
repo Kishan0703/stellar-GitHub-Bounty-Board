@@ -1,9 +1,15 @@
+"use client";
+
 import { useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import { connectWallet, truncateWallet } from '../../lib/freighter';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4000';
+
+function truncateWallet(wallet) {
+  if (!wallet || wallet.length < 10) return wallet || '';
+  return `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
+}
 
 export default function CreateBounty() {
   const [wallet, setWallet] = useState(null);
@@ -22,10 +28,27 @@ export default function CreateBounty() {
   async function handleConnect() {
     setConnecting(true);
     try {
-      const publicKey = await connectWallet();
+      const freighter = await import('@stellar/freighter-api');
+
+      const connected = await freighter.isConnected();
+      if (!connected) {
+        alert('Freighter extension not found. Install it from https://freighter.app and refresh.');
+        return;
+      }
+
+      const { networkPassphrase } = await freighter.getNetworkDetails();
+      if (networkPassphrase !== 'Test SDF Network ; September 2015') {
+        alert('Please switch Freighter to Testnet: Freighter → Settings → Network → Test SDF Network');
+        return;
+      }
+
+      await freighter.setAllowed();
+      const publicKey = await freighter.getPublicKey();
       if (publicKey) {
         setWallet(publicKey);
       }
+    } catch (e) {
+      alert(`Freighter error: ${e.message}`);
     } finally {
       setConnecting(false);
     }
