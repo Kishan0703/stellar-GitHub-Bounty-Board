@@ -5,6 +5,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4000';
+const WEBHOOK_PAYLOAD_URL = 'https://stellar-bug-bounty-production.up.railway.app/webhook/github';
 
 function truncateWallet(wallet) {
   if (!wallet || wallet.length < 10) return wallet || '';
@@ -20,6 +21,7 @@ export default function CreateBounty() {
 
   const [form, setForm] = useState({
     issueUrl: '',
+    webhookSecret: '',
     amount: '',
     title: '',
     description: '',
@@ -68,7 +70,7 @@ export default function CreateBounty() {
       return;
     }
 
-    if (!form.issueUrl || !form.amount || !form.title) {
+    if (!form.issueUrl || !form.amount || !form.title || !form.webhookSecret) {
       setError('Please fill in all required fields.');
       return;
     }
@@ -96,6 +98,7 @@ export default function CreateBounty() {
           amount: form.amount,
           title: form.title,
           description: form.description,
+          webhookSecret: form.webhookSecret,
         }),
       });
 
@@ -105,7 +108,7 @@ export default function CreateBounty() {
       }
 
       setSuccess(true);
-      setForm({ issueUrl: '', amount: '', title: '', description: '' });
+      setForm({ issueUrl: '', webhookSecret: '', amount: '', title: '', description: '' });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -192,6 +195,51 @@ export default function CreateBounty() {
 
           {/* Form */}
           <form onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label htmlFor="webhookSecret">
+                Webhook Secret <span className="required">*</span>
+              </label>
+              <input
+                id="webhookSecret"
+                name="webhookSecret"
+                type="text"
+                className="form-input"
+                placeholder="Choose any secret e.g. my-secret-123"
+                value={form.webhookSecret}
+                onChange={handleChange}
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="payloadUrl">Payload URL</label>
+              <div className="input-action-row">
+                <input
+                  id="payloadUrl"
+                  type="text"
+                  className="form-input"
+                  value={WEBHOOK_PAYLOAD_URL}
+                  readOnly
+                />
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(WEBHOOK_PAYLOAD_URL);
+                    } catch (e) {
+                      alert('Failed to copy. Please copy manually.');
+                    }
+                  }}
+                >
+                  Copy
+                </button>
+              </div>
+              <p style={{ marginTop: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                Use this exact Payload URL and your chosen secret when adding the webhook to your GitHub repo → Settings → Webhooks
+              </p>
+            </div>
+
             <div className="form-group">
               <label htmlFor="issueUrl">
                 GitHub Issue URL <span className="required">*</span>

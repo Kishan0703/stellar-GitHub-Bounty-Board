@@ -12,12 +12,12 @@ const { initializeEscrow, setServiceProvider } = require('../trustlesswork');
  */
 router.post('/bounty/create', async (req, res) => {
   try {
-    const { issueUrl, posterWallet, amount, title, description } = req.body;
+    const { issueUrl, posterWallet, amount, title, description, webhookSecret } = req.body;
 
     // Validate required fields
-    if (!issueUrl || !posterWallet || !amount || !title) {
+    if (!issueUrl || !posterWallet || !amount || !title || !webhookSecret) {
       return res.status(400).json({
-        error: 'Missing required fields: issueUrl, posterWallet, amount, title',
+        error: 'Missing required fields: issueUrl, posterWallet, amount, title, webhookSecret',
       });
     }
 
@@ -62,8 +62,8 @@ router.post('/bounty/create', async (req, res) => {
 
     // Store in database
     const stmt = db.prepare(`
-      INSERT INTO bounties (id, issueUrl, repoOwner, repoName, issueNumber, escrowId, escrowContractAddress, posterWallet, amount, currency, status, title, description)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'USDC', 'open', ?, ?)
+      INSERT INTO bounties (id, issueUrl, repoOwner, repoName, issueNumber, escrowId, escrowContractAddress, posterWallet, amount, currency, status, title, description, webhook_secret)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'USDC', 'open', ?, ?, ?)
     `);
 
     stmt.run(
@@ -77,7 +77,8 @@ router.post('/bounty/create', async (req, res) => {
       posterWallet,
       amount,
       title,
-      description || null
+      description || null,
+      webhookSecret
     );
 
     const bounty = db.prepare('SELECT * FROM bounties WHERE id = ?').get(id);

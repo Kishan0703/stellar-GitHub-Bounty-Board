@@ -6,6 +6,19 @@ const { releaseEscrow } = require('../trustlesswork');
 
 // TODO: add auth — webhook signature verification is the primary security here
 
+function signatureMatches(rawBody, signature, secret) {
+  if (!signature || !secret) return false;
+
+  const hmac = crypto.createHmac('sha256', secret);
+  hmac.update(rawBody);
+  const expectedSignature = `sha256=${hmac.digest('hex')}`;
+
+  const sig = Buffer.from(signature);
+  const expected = Buffer.from(expectedSignature);
+
+  return sig.length === expected.length && crypto.timingSafeEqual(sig, expected);
+}
+
 /**
  * POST /webhook/github
  * Receives GitHub webhook events for pull_request merges.
@@ -18,23 +31,9 @@ router.post(
     try {
       // 1. Verify GitHub webhook signature
       const signature = req.headers['x-hub-signature-256'];
-      const secret = process.env.GITHUB_WEBHOOK_SECRET;
-
-      if (!signature || !secret) {
-        console.warn('Missing webhook signature or secret');
+      if (!signature) {
+        console.warn('Missing webhook signature');
         return res.status(401).json({ error: 'Missing signature' });
-      }
-
-      const hmac = crypto.createHmac('sha256', secret);
-      hmac.update(req.body);
-      const expectedSignature = `sha256=${hmac.digest('hex')}`;
-
-      const sig = Buffer.from(signature);
-      const expected = Buffer.from(expectedSignature);
-
-      if (sig.length !== expected.length || !crypto.timingSafeEqual(sig, expected)) {
-        console.warn('Invalid webhook signature');
-        return res.status(401).json({ error: 'Invalid signature' });
       }
 
       // 2. Parse body and check event type
@@ -53,8 +52,26 @@ router.post(
       console.log(`🔀 Merged PR #${payload.pull_request.number} in ${payload.repository.full_name}`);
 
       // 4. Extract repo info
-      const repoOwner = payload.repository.owner.login;
-      const repoName = payload.repository.name;
+      const repoUrl = payload.repository?.html_url || '';
+      const repoOwner = payload.repository?.owner?.login;
+      const repoName = payload.repository?.name;
+
+      if (!repoOwner || !repoName) {
+        return res.status(400).json({ error: 'Missing repository info in payload' });
+      }
+
+      const repoBounties = db.prepare(
+        'SELECT * FROM bounties WHERE repoOwner = ? AND repoName = ?'
+      ).all(repoOwner, repoName);
+
+      const matchingBounties = repoBounties.filter((bounty) =>
+        signatureMatches(req.body, signature, bounty.webhook_secret)
+      );
+
+      if (matchingBounties.length === 0) {
+        console.warn(`Invalid webhook signature for repo ${repoUrl || `${repoOwner}/${repoName}`}`);
+        return res.status(401).json({ error: 'Invalid signature' });
+      }
 
       // 5. Search PR body for linked issue: Fixes #123, Closes #123, Resolves #123
       const prBody = payload.pull_request.body || '';

@@ -23,9 +23,17 @@ db.exec(`
     status TEXT DEFAULT 'open',
     title TEXT,
     description TEXT,
+    webhook_secret TEXT,
     createdAt TEXT DEFAULT (datetime('now')),
     updatedAt TEXT
   )
 `);
+
+const columns = db.prepare('PRAGMA table_info(bounties)').all();
+const hasColumn = (name) => columns.some((column) => column.name === name);
+
+if (!hasColumn('webhook_secret')) {
+  db.exec('ALTER TABLE bounties ADD COLUMN webhook_secret TEXT');
+}
 
 module.exports = db;
