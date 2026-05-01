@@ -12,13 +12,11 @@ const PORT = process.env.PORT || 4000;
 // CORS — allow frontend to connect
 app.use(cors());
 
-// JSON body parser for all routes except webhook (which needs raw body)
-app.use((req, res, next) => {
-  if (req.path === '/webhook/github') {
-    return next();
-  }
-  express.json()(req, res, next);
-});
+// Webhook route needs raw request body for signature verification.
+app.use('/webhook/github', express.raw({ type: 'application/json' }));
+
+// JSON body parser for non-webhook routes.
+app.use(express.json());
 
 // Mount routes
 app.use('/webhook', webhookRoutes);

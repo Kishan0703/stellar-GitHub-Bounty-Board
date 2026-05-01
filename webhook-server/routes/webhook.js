@@ -26,10 +26,10 @@ function signatureMatches(rawBody, signature, secret) {
  */
 router.post(
   '/github',
-  express.raw({ type: 'application/json' }),
   async (req, res) => {
     try {
       // 1. Verify GitHub webhook signature
+      const rawBody = req.body;
       const signature = req.headers['x-hub-signature-256'];
       if (!signature) {
         console.warn('Missing webhook signature');
@@ -37,7 +37,7 @@ router.post(
       }
 
       // 2. Parse body and check event type
-      const payload = JSON.parse(req.body.toString());
+      const payload = JSON.parse(rawBody.toString());
       const event = req.headers['x-github-event'];
 
       if (event !== 'pull_request') {
@@ -65,7 +65,7 @@ router.post(
       ).all(repoOwner, repoName);
 
       const matchingBounties = repoBounties.filter((bounty) =>
-        signatureMatches(req.body, signature, bounty.webhook_secret)
+        signatureMatches(rawBody, signature, bounty.webhook_secret)
       );
 
       if (matchingBounties.length === 0) {
