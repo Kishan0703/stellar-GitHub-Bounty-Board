@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 function GitHubIcon() {
   return (
@@ -23,7 +23,7 @@ export default function BountyBoard() {
 
   async function fetchBounties() {
     try {
-      const res = await fetch(`${API_BASE}/bounties`);
+      const res = await fetch(`${API_URL}/bounties`);
       if (res.ok) {
         const data = await res.json();
         setBounties(data);

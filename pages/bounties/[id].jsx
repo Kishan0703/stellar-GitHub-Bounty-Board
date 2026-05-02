@@ -5,7 +5,7 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Link from 'next/link';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 function truncateWallet(wallet) {
   if (!wallet || wallet.length < 10) return wallet || '';
@@ -30,7 +30,7 @@ export default function BountyDetail() {
 
   async function fetchBounty() {
     try {
-      const res = await fetch(`${API_BASE}/bounty/${id}`);
+      const res = await fetch(`${API_URL}/bounty/${id}`);
       if (res.ok) {
         const data = await res.json();
         setBounty(data);
@@ -83,7 +83,7 @@ export default function BountyDetail() {
     setClaiming(true);
     setError('');
     try {
-      const res = await fetch(`${API_BASE}/bounty/claim`, {
+      const res = await fetch(`${API_URL}/bounty/claim`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

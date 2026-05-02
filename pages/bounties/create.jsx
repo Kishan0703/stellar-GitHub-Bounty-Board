@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 const WEBHOOK_PAYLOAD_URL = 'https://stellar-bug-bounty-production.up.railway.app/webhook/github';
 
 function truncateWallet(wallet) {
@@ -89,7 +89,7 @@ export default function CreateBounty() {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/bounty/create`, {
+      const res = await fetch(`${API_URL}/bounty/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
