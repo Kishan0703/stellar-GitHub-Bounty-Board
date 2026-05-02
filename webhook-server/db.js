@@ -1,40 +1,36 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+const { Pool } = require('pg');
 
-const dbPath = process.env.DB_PATH || path.join('/data', 'bounties.db');
-const db = new Database(dbPath);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+});
 
-// Enable WAL mode for better concurrent performance
-db.pragma('journal_mode = WAL');
-
-// Create bounties table
-db.exec(`
-  CREATE TABLE IF NOT EXISTS bounties (
-    id TEXT PRIMARY KEY,
-    issueUrl TEXT UNIQUE NOT NULL,
-    repoOwner TEXT NOT NULL,
-    repoName TEXT NOT NULL,
-    issueNumber INTEGER NOT NULL,
-    escrowId TEXT,
-    escrowContractAddress TEXT,
-    posterWallet TEXT NOT NULL,
-    solverWallet TEXT,
-    amount TEXT NOT NULL,
-    currency TEXT DEFAULT 'USDC',
-    status TEXT DEFAULT 'open',
-    title TEXT,
-    description TEXT,
-    webhook_secret TEXT,
-    createdAt TEXT DEFAULT (datetime('now')),
-    updatedAt TEXT
-  )
-`);
-
-const columns = db.prepare('PRAGMA table_info(bounties)').all();
-const hasColumn = (name) => columns.some((column) => column.name === name);
-
-if (!hasColumn('webhook_secret')) {
-  db.exec('ALTER TABLE bounties ADD COLUMN webhook_secret TEXT');
+async function initializeSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bounties (
+      id TEXT PRIMARY KEY,
+      "issueUrl" TEXT UNIQUE NOT NULL,
+      "repoOwner" TEXT NOT NULL,
+      "repoName" TEXT NOT NULL,
+      "issueNumber" INTEGER NOT NULL,
+      "escrowId" TEXT,
+      "escrowContractAddress" TEXT,
+      "posterWallet" TEXT NOT NULL,
+      "solverWallet" TEXT,
+      amount TEXT NOT NULL,
+      currency TEXT DEFAULT 'USDC',
+      status TEXT DEFAULT 'open',
+      title TEXT,
+      description TEXT,
+      webhook_secret TEXT,
+      "createdAt" TIMESTAMP DEFAULT NOW(),
+      "updatedAt" TIMESTAMP
+    )
+  `);
 }
 
-module.exports = db;
+initializeSchema().catch((error) => {
+  console.error('Failed to initialize database schema:', error);
+});
+
+module.exports = pool;

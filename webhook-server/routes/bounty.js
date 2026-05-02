@@ -1,7 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
-const db = require('../db');
+const pool = require('../db');
 const { initializeEscrow, setServiceProvider } = require('../trustlesswork');
 
 // TODO: add auth on all sensitive routes
@@ -36,8 +36,8 @@ router.post('/bounty/create', async (req, res) => {
     const issueNumber = parseInt(issueNumberStr, 10);
 
     // Check for duplicate
-    const existing = db.prepare('SELECT id FROM bounties WHERE issueUrl = ?').get(issueUrl);
-    if (existing) {
+    const existingResult = await pool.query('SELECT id FROM bounties WHERE "issueUrl" = $1', [issueUrl]);
+    if (existingResult.rows[0]) {
       return res.status(409).json({ error: 'A bounty already exists for this issue' });
     }
 
@@ -61,12 +61,13 @@ router.post('/bounty/create', async (req, res) => {
     }
 
     // Store in database
-    const stmt = db.prepare(`
-      INSERT INTO bounties (id, issueUrl, repoOwner, repoName, issueNumber, escrowId, escrowContractAddress, posterWallet, amount, currency, status, title, description, webhook_secret)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'USDC', 'open', ?, ?, ?)
-    `);
-
-    stmt.run(
+    await pool.query(`
+      INSERT INTO bounties (
+        id, "issueUrl", "repoOwner", "repoName", "issueNumber", "escrowId",
+        "escrowContractAddress", "posterWallet", amount, currency, status, title, description, webhook_secret
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'USDC', 'open', $10, $11, $12)
+    `, [
       id,
       issueUrl,
       repoOwner,
@@ -78,10 +79,11 @@ router.post('/bounty/create', async (req, res) => {
       amount,
       title,
       description || null,
-      webhookSecret
-    );
+      webhookSecret,
+    ]);
 
-    const bounty = db.prepare('SELECT * FROM bounties WHERE id = ?').get(id);
+    const bountyResult = await pool.query('SELECT * FROM bounties WHERE id = $1', [id]);
+    const bounty = bountyResult.rows[0];
 
     console.log(`🏆 Bounty created: ${title} (${amount} USDC) for ${issueUrl}`);
     return res.status(201).json(bounty);
@@ -105,7 +107,8 @@ router.post('/bounty/claim', async (req, res) => {
       });
     }
 
-    const bounty = db.prepare('SELECT * FROM bounties WHERE id = ?').get(bountyId);
+    const bountyResult = await pool.query('SELECT * FROM bounties WHERE id = $1', [bountyId]);
+    const bounty = bountyResult.rows[0];
 
     if (!bounty) {
       return res.status(404).json({ error: 'Bounty not found' });
@@ -128,11 +131,13 @@ router.post('/bounty/claim', async (req, res) => {
     }
 
     // Update database
-    db.prepare(
-      'UPDATE bounties SET solverWallet = ?, status = ?, updatedAt = datetime(\'now\') WHERE id = ?'
-    ).run(solverWallet, 'claimed', bountyId);
+    await pool.query(
+      'UPDATE bounties SET "solverWallet" = $1, status = $2, "updatedAt" = NOW() WHERE id = $3',
+      [solverWallet, 'claimed', bountyId]
+    );
 
-    const updated = db.prepare('SELECT * FROM bounties WHERE id = ?').get(bountyId);
+    const updatedResult = await pool.query('SELECT * FROM bounties WHERE id = $1', [bountyId]);
+    const updated = updatedResult.rows[0];
 
     console.log(`🎯 Bounty ${bountyId} claimed by ${solverWallet}`);
     return res.json(updated);
@@ -146,19 +151,22 @@ router.post('/bounty/claim', async (req, res) => {
  * GET /bounties
  * List all bounties with optional status filter.
  */
-router.get('/bounties', (req, res) => {
+router.get('/bounties', async (req, res) => {
   try {
     const { status } = req.query;
 
     let bounties;
     if (status) {
-      bounties = db.prepare(
-        'SELECT * FROM bounties WHERE status = ? ORDER BY createdAt DESC'
-      ).all(status);
+      const result = await pool.query(
+        'SELECT * FROM bounties WHERE status = $1 ORDER BY "createdAt" DESC',
+        [status]
+      );
+      bounties = result.rows;
     } else {
-      bounties = db.prepare(
-        'SELECT * FROM bounties ORDER BY createdAt DESC'
-      ).all();
+      const result = await pool.query(
+        'SELECT * FROM bounties ORDER BY "createdAt" DESC'
+      );
+      bounties = result.rows;
     }
 
     return res.json(bounties);
@@ -172,9 +180,10 @@ router.get('/bounties', (req, res) => {
  * GET /bounty/:id
  * Get a single bounty by ID.
  */
-router.get('/bounty/:id', (req, res) => {
+router.get('/bounty/:id', async (req, res) => {
   try {
-    const bounty = db.prepare('SELECT * FROM bounties WHERE id = ?').get(req.params.id);
+    const result = await pool.query('SELECT * FROM bounties WHERE id = $1', [req.params.id]);
+    const bounty = result.rows[0];
 
     if (!bounty) {
       return res.status(404).json({ error: 'Bounty not found' });

@@ -1,7 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
-const db = require('../db');
+const pool = require('../db');
 const { releaseEscrow } = require('../trustlesswork');
 
 // TODO: add auth — webhook signature verification is the primary security here
@@ -60,9 +60,11 @@ router.post(
         return res.status(400).json({ error: 'Missing repository info in payload' });
       }
 
-      const repoBounties = db.prepare(
-        'SELECT * FROM bounties WHERE repoOwner = ? AND repoName = ?'
-      ).all(repoOwner, repoName);
+      const repoBountiesResult = await pool.query(
+        'SELECT * FROM bounties WHERE "repoOwner" = $1 AND "repoName" = $2',
+        [repoOwner, repoName]
+      );
+      const repoBounties = repoBountiesResult.rows;
 
       const matchingBounties = repoBounties.filter((bounty) =>
         signatureMatches(rawBody, signature, bounty.webhook_secret)
@@ -88,9 +90,11 @@ router.post(
         const issueNumber = parseInt(match[1], 10);
         console.log(`🔍 Looking up bounty for ${repoOwner}/${repoName}#${issueNumber}`);
 
-        const bounty = db.prepare(
-          'SELECT * FROM bounties WHERE repoOwner = ? AND repoName = ? AND issueNumber = ?'
-        ).get(repoOwner, repoName, issueNumber);
+        const bountyResult = await pool.query(
+          'SELECT * FROM bounties WHERE "repoOwner" = $1 AND "repoName" = $2 AND "issueNumber" = $3',
+          [repoOwner, repoName, issueNumber]
+        );
+        const bounty = bountyResult.rows[0];
 
         if (!bounty) {
           console.log(`No bounty found for issue #${issueNumber}`);
@@ -108,9 +112,10 @@ router.post(
           await releaseEscrow(bounty.escrowId);
 
           // 8. Update bounty status
-          db.prepare(
-            'UPDATE bounties SET status = ?, updatedAt = datetime(\'now\') WHERE id = ?'
-          ).run('completed', bounty.id);
+          await pool.query(
+            'UPDATE bounties SET status = $1, "updatedAt" = NOW() WHERE id = $2',
+            ['completed', bounty.id]
+          );
 
           console.log(`✅ Bounty ${bounty.id} completed! Funds released to ${bounty.solverWallet}`);
         } catch (releaseError) {
