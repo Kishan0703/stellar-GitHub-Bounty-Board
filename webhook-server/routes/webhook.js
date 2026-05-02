@@ -2,9 +2,39 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 const pool = require('../db');
-const { releaseEscrow } = require('../trustlesswork');
+const StellarSdk = require('@stellar/stellar-sdk');
 
 // TODO: add auth — webhook signature verification is the primary security here
+
+/**
+ * Release bounty funds via direct Stellar USDC transfer from platform wallet
+ */
+async function releaseFunds(solverWallet, amount) {
+  const server = new StellarSdk.Horizon.Server(process.env.STELLAR_HORIZON_URL);
+  const platformKeypair = StellarSdk.Keypair.fromSecret(process.env.PLATFORM_SECRET_KEY);
+  const account = await server.loadAccount(platformKeypair.publicKey());
+  
+  const usdcAsset = new StellarSdk.Asset(
+    process.env.USDC_ASSET_CODE,
+    process.env.USDC_ASSET_ISSUER
+  );
+
+  const transaction = new StellarSdk.TransactionBuilder(account, {
+    fee: StellarSdk.BASE_FEE,
+    networkPassphrase: StellarSdk.Networks.TESTNET,
+  })
+    .addOperation(StellarSdk.Operation.payment({
+      destination: solverWallet,
+      asset: usdcAsset,
+      amount: amount.toString(),
+    }))
+    .setTimeout(30)
+    .build();
+
+  transaction.sign(platformKeypair);
+  const result = await server.submitTransaction(transaction);
+  return result;
+}
 
 function signatureMatches(rawBody, signature, secret) {
   if (!signature || !secret) return false;
@@ -106,10 +136,10 @@ router.post(
           continue;
         }
 
-        // 7. Release escrow via Trustless Work API
+        // 7. Release funds via direct Stellar USDC transfer
         try {
-          console.log(`💰 Releasing escrow ${bounty.escrowId} for bounty ${bounty.id}`);
-          await releaseEscrow(bounty.escrowId);
+          console.log(`💰 Transferring ${bounty.amount} USDC to ${bounty.solverWallet} for bounty ${bounty.id}`);
+          await releaseFunds(bounty.solverWallet, bounty.amount);
 
           // 8. Update bounty status
           await pool.query(

@@ -1,15 +1,30 @@
-"use client";
+'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Link from 'next/link';
+import Navbar from '../../components/Navbar';
+import { SkeletonCard, SkeletonText } from '../../components/Skeleton';
+import { EmptyState } from '../../components/EmptyState';
+import { showSuccessToast, showErrorToast } from '../../lib/toast';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 function truncateWallet(wallet) {
   if (!wallet || wallet.length < 10) return wallet || '';
   return `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
+}
+
+function formatDate(date) {
+  if (!date) return '';
+  return new Date(date).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 export default function BountyDetail() {
@@ -21,7 +36,6 @@ export default function BountyDetail() {
   const [wallet, setWallet] = useState(null);
   const [claiming, setClaiming] = useState(false);
   const [connecting, setConnecting] = useState(false);
-  const [error, setError] = useState('');
   const [claimSuccess, setClaimSuccess] = useState(false);
 
   useEffect(() => {
@@ -35,10 +49,10 @@ export default function BountyDetail() {
         const data = await res.json();
         setBounty(data);
       } else {
-        setError('Bounty not found');
+        showErrorToast('Bounty not found');
       }
     } catch (err) {
-      setError('Failed to load bounty');
+      showErrorToast('Failed to load bounty');
     } finally {
       setLoading(false);
     }
@@ -51,24 +65,25 @@ export default function BountyDetail() {
 
       const connected = await freighter.isConnected();
       if (!connected) {
-        alert('Freighter extension not found. Install it from https://freighter.app and refresh.');
+        showErrorToast('Freighter extension not found. Install it from https://freighter.app');
         return;
       }
 
       const { networkPassphrase } = await freighter.getNetworkDetails();
       if (networkPassphrase !== 'Test SDF Network ; September 2015') {
-        alert('Please switch Freighter to Testnet: Freighter → Settings → Network → Test SDF Network');
+        showErrorToast('Please switch Freighter to Testnet');
         return;
       }
 
       await freighter.setAllowed();
       const publicKeyRes = await freighter.getPublicKey();
-      const publicKey = typeof publicKeyRes === 'string'
-        ? publicKeyRes
-        : publicKeyRes?.publicKey;
-      if (publicKey) setWallet(publicKey);
+      const publicKey = typeof publicKeyRes === 'string' ? publicKeyRes : publicKeyRes?.publicKey;
+      if (publicKey) {
+        setWallet(publicKey);
+        showSuccessToast('Wallet connected!');
+      }
     } catch (e) {
-      alert(`Freighter error: ${e.message}`);
+      showErrorToast(`Freighter error: ${e.message}`);
     } finally {
       setConnecting(false);
     }
@@ -76,12 +91,11 @@ export default function BountyDetail() {
 
   async function handleClaim() {
     if (!wallet) {
-      setError('Please connect your wallet first');
+      showErrorToast('Please connect your wallet first');
       return;
     }
 
     setClaiming(true);
-    setError('');
     try {
       const res = await fetch(`${API_URL}/bounty/claim`, {
         method: 'POST',
@@ -98,9 +112,10 @@ export default function BountyDetail() {
       }
 
       setClaimSuccess(true);
+      showSuccessToast('Bounty claimed! Now solve the issue and submit a PR.');
       await fetchBounty();
     } catch (err) {
-      setError(err.message);
+      showErrorToast(err.message);
     } finally {
       setClaiming(false);
     }
@@ -110,21 +125,16 @@ export default function BountyDetail() {
     return (
       <>
         <Head>
-          <title>Loading... — Stellar Bounties</title>
+          <title>Loading... — BountyBoard</title>
         </Head>
-        <nav className="nav-bar">
-          <Link href="/bounties" className="logo">
-            🏆 <span>Stellar Bounties</span>
-          </Link>
-          <div className="nav-links">
-            <Link href="/bounties">Browse</Link>
-            <Link href="/bounties/create">Post Bounty</Link>
-          </div>
-        </nav>
-        <div className="page-container">
-          <div className="empty-state">
-            <div className="spinner" style={{ margin: '0 auto' }} />
-            <p style={{ marginTop: '1rem' }}>Loading bounty...</p>
+        <Navbar />
+        <div className="page">
+          <div className="container">
+            <SkeletonCard />
+            <div style={{ marginTop: '24px' }}>
+              <SkeletonText />
+              <SkeletonText width="80%" />
+            </div>
           </div>
         </div>
       </>
@@ -135,237 +145,231 @@ export default function BountyDetail() {
     return (
       <>
         <Head>
-          <title>Not Found — Stellar Bounties</title>
+          <title>Not Found — BountyBoard</title>
         </Head>
-        <nav className="nav-bar">
-          <Link href="/bounties" className="logo">
-            🏆 <span>Stellar Bounties</span>
-          </Link>
-          <div className="nav-links">
-            <Link href="/bounties">Browse</Link>
-            <Link href="/bounties/create">Post Bounty</Link>
-          </div>
-        </nav>
-        <div className="page-container">
-          <div className="empty-state">
-            <div className="icon">😕</div>
-            <h3>Bounty Not Found</h3>
-            <p>This bounty doesn&apos;t exist or has been removed.</p>
-            <Link href="/bounties" className="btn btn-primary">
-              Back to Bounty Board
-            </Link>
+        <Navbar />
+        <div className="page">
+          <div className="container">
+            <EmptyState
+              icon="😕"
+              title="Bounty Not Found"
+              description="This bounty doesn't exist or has been removed"
+              action={<Link href="/bounties" className="btn btn-primary">Back to Bounties</Link>}
+            />
           </div>
         </div>
       </>
     );
   }
 
+  const statusColor = {
+    open: 'badge-success',
+    claimed: 'badge-info',
+    completed: 'badge-success',
+  }[bounty.status] || 'badge-info';
+
   return (
     <>
       <Head>
-        <title>{bounty.title} — Stellar Bounties</title>
-        <meta
-          name="description"
-          content={`${bounty.amount} USDC bounty: ${bounty.title}. ${bounty.description || 'Claim this bounty and earn USDC by solving this GitHub issue.'}`}
-        />
+        <title>{bounty.title} — BountyBoard</title>
+        <meta name="description" content={`${bounty.amount} USDC bounty: ${bounty.title}`} />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
 
-      {/* Navigation */}
-      <nav className="nav-bar">
-        <Link href="/bounties" className="logo">
-          🏆 <span>Stellar Bounties</span>
-        </Link>
-        <div className="nav-links">
-          <Link href="/bounties">Browse</Link>
-          <Link href="/bounties/create">Post Bounty</Link>
-        </div>
-      </nav>
+      <Navbar walletAddress={wallet} connecting={connecting} onConnect={handleConnect} />
 
-      <div className="page-container">
-        <Link href="/bounties" className="back-link">
-          ← Back to Bounty Board
-        </Link>
+      <div className="page">
+        <div className="container" style={{ maxWidth: '900px' }}>
+          {/* Back Link */}
+          <Link href="/bounties" style={{ color: 'var(--accent)', fontSize: '13px', fontWeight: '600', marginBottom: '24px', display: 'inline-block' }}>
+            ← Back to Bounties
+          </Link>
 
-        <div className="detail-container">
-          <div className="detail-card">
-            {/* Header */}
-            <div className="detail-header">
-              <div>
-                <span className={`status-badge ${bounty.status}`} style={{ marginBottom: '1rem', display: 'inline-flex' }}>
-                  {bounty.status}
-                </span>
-                <h1>{bounty.title}</h1>
+          {/* Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '32px', gap: '24px', flexWrap: 'wrap' }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                <span className={`badge ${statusColor}`}>{bounty.status}</span>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(window.location.href);
+                    showSuccessToast('Link copied!');
+                  }}
+                  className="btn btn-ghost btn-sm"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  🔗
+                </button>
               </div>
-              <div className="detail-amount">
-                {bounty.amount}
-                <span className="currency"> {bounty.currency || 'USDC'}</span>
-              </div>
+              <h1 className="page-title" style={{ fontSize: '32px', marginBottom: '12px' }}>{bounty.title}</h1>
+              <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
+                {bounty.repoOwner}/{bounty.repoName}#{bounty.issueNumber}
+              </p>
             </div>
 
-            {/* Info Grid */}
-            <div className="detail-grid">
-              <div className="detail-item">
-                <div className="label">GitHub Issue</div>
-                <div className="value">
-                  <a
-                    href={bounty.issueUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: 'var(--accent-purple-light)' }}
-                  >
-                    {bounty.repoOwner}/{bounty.repoName}#{bounty.issueNumber} ↗
-                  </a>
-                </div>
+            <div className="card" style={{ textAlign: 'center', padding: '24px', minWidth: '180px' }}>
+              <div style={{ fontSize: '32px', fontWeight: '800', color: '#3b82f6', marginBottom: '8px' }}>
+                ${bounty.amount}
               </div>
-
-              <div className="detail-item">
-                <div className="label">Poster Wallet</div>
-                <div className="value mono">
-                  {truncateWallet(bounty.posterWallet)}
-                </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>
+                USDC Reward
               </div>
+            </div>
+          </div>
 
-              {bounty.solverWallet && (
-                <div className="detail-item">
-                  <div className="label">Solver Wallet</div>
-                  <div className="value mono">
-                    {truncateWallet(bounty.solverWallet)}
-                  </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '32px' }}>
+            {/* Main Content */}
+            <div>
+              {/* Description */}
+              {bounty.description && (
+                <div className="card" style={{ marginBottom: '32px' }}>
+                  <h3 style={{ fontSize: '14px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '12px' }}>
+                    Description
+                  </h3>
+                  <p style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: '1.8' }}>
+                    {bounty.description}
+                  </p>
                 </div>
               )}
 
-              {bounty.escrowContractAddress && (
-                <div className="detail-item">
-                  <div className="label">Escrow Contract</div>
-                  <div className="value mono">
+              {/* Info Grid */}
+              <div className="card" style={{ marginBottom: '32px' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                  Details
+                </h3>
+                <div style={{ display: 'grid', gap: '16px' }}>
+                  <div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>GitHub Issue</div>
                     <a
-                      href={`https://stellar.expert/explorer/testnet/contract/${bounty.escrowContractAddress}`}
+                      href={bounty.issueUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      style={{ color: 'var(--accent-cyan)' }}
+                      style={{ color: 'var(--accent)', fontWeight: '500' }}
                     >
-                      {truncateWallet(bounty.escrowContractAddress)} ↗
+                      Open in GitHub ↗
                     </a>
                   </div>
-                </div>
-              )}
 
-              <div className="detail-item">
-                <div className="label">Created</div>
-                <div className="value">
-                  {bounty.createdAt ? new Date(bounty.createdAt).toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                  }) : 'N/A'}
+                  <div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>Poster Wallet</div>
+                    <div style={{ fontSize: '14px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                      {truncateWallet(bounty.posterWallet)}
+                    </div>
+                  </div>
+
+                  {bounty.solverWallet && (
+                    <div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>Solver Wallet</div>
+                      <div style={{ fontSize: '14px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                        {truncateWallet(bounty.solverWallet)}
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>Created</div>
+                    <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                      {formatDate(bounty.createdAt)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Timeline */}
+              <div className="card">
+                <h3 style={{ fontSize: '14px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '24px' }}>
+                  Timeline
+                </h3>
+                <div className="timeline">
+                  <div className="timeline-item">
+                    <div className="timeline-dot"></div>
+                    <div className="timeline-content">
+                      <div className="timeline-label">Created</div>
+                      <div className="timeline-value">{formatDate(bounty.createdAt)}</div>
+                    </div>
+                  </div>
+
+                  {bounty.claimedAt && (
+                    <div className="timeline-item">
+                      <div className="timeline-dot"></div>
+                      <div className="timeline-content">
+                        <div className="timeline-label">Claimed</div>
+                        <div className="timeline-value">{formatDate(bounty.claimedAt)}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {bounty.completedAt && (
+                    <div className="timeline-item">
+                      <div className="timeline-dot"></div>
+                      <div className="timeline-content">
+                        <div className="timeline-label">Completed</div>
+                        <div className="timeline-value">{formatDate(bounty.completedAt)}</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* Description */}
-            {bounty.description && (
-              <div className="detail-description">
-                <h3>Description</h3>
-                <p>{bounty.description}</p>
-              </div>
-            )}
+            {/* Sidebar */}
+            <div>
+              {bounty.status === 'open' && (
+                <div className="card" style={{ marginBottom: '16px' }}>
+                  {!wallet ? (
+                    <>
+                      <div style={{ marginBottom: '16px' }}>
+                        <button
+                          onClick={handleConnect}
+                          disabled={connecting}
+                          className="btn btn-primary"
+                          style={{ width: '100%' }}
+                        >
+                          {connecting ? '🔄 Connecting...' : '🔗 Connect Wallet'}
+                        </button>
+                      </div>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.6' }}>
+                        Connect your Stellar wallet to claim this bounty
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ marginBottom: '16px' }}>
+                        <button
+                          onClick={handleClaim}
+                          disabled={claiming}
+                          className="btn btn-success"
+                          style={{ width: '100%' }}
+                        >
+                          {claiming ? '⏳ Claiming...' : '🎯 Claim Bounty'}
+                        </button>
+                      </div>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.6' }}>
+                        Click to claim this bounty and start working on it
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
 
-            {/* Alerts */}
-            {error && (
-              <div className="alert alert-error">⚠️ {error}</div>
-            )}
+              {bounty.status === 'claimed' && (
+                <div className="card" style={{ backgroundColor: 'rgba(59, 130, 246, 0.05)', borderColor: 'rgba(59, 130, 246, 0.2)' }}>
+                  <div style={{ fontSize: '14px', fontWeight: '700', marginBottom: '8px' }}>⏳ In Progress</div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.6' }}>
+                    Solver is working on this bounty. Your PR will trigger automatic payment when merged.
+                  </p>
+                </div>
+              )}
 
-            {claimSuccess && (
-              <div className="alert alert-success">
-                ✅ Bounty claimed successfully! Submit your PR and reference this issue to receive payment.
-              </div>
-            )}
-
-            {/* Status-specific actions */}
-            {bounty.status === 'open' && (
-              <div className="claim-section">
-                <h3>🎯 Claim This Bounty</h3>
-                <p>
-                  Connect your Freighter wallet and claim this bounty. Once claimed, submit a PR that
-                  references this issue (e.g., &quot;Fixes #{bounty.issueNumber}&quot;). When your PR is
-                  merged, {bounty.amount} USDC will be released to your wallet automatically.
-                </p>
-
-                {!wallet ? (
-                  <button
-                    className="btn btn-wallet"
-                    onClick={handleConnect}
-                    disabled={connecting}
-                    type="button"
-                  >
-                    {connecting ? (
-                      <>
-                        <span className="spinner" />
-                        Connecting...
-                      </>
-                    ) : (
-                      '🔗 Connect Freighter Wallet'
-                    )}
-                  </button>
-                ) : (
-                  <div>
-                    <p style={{ fontSize: '0.85rem', color: 'var(--accent-green)', marginBottom: '1rem' }}>
-                      Connected: {truncateWallet(wallet)}
-                    </p>
-                    <button
-                      className="btn btn-primary"
-                      onClick={handleClaim}
-                      disabled={claiming}
-                      type="button"
-                    >
-                      {claiming ? (
-                        <>
-                          <span className="spinner" />
-                          Claiming...
-                        </>
-                      ) : (
-                        `⚡ Claim ${bounty.amount} USDC Bounty`
-                      )}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {bounty.status === 'claimed' && (
-              <div className="status-message awaiting">
-                <div className="icon">⏳</div>
-                <h3>Awaiting PR Merge</h3>
-                <p style={{ fontWeight: 400, marginTop: '0.5rem' }}>
-                  This bounty has been claimed by {truncateWallet(bounty.solverWallet)}.
-                  When their PR referencing issue #{bounty.issueNumber} is merged,
-                  funds will be released automatically.
-                </p>
-              </div>
-            )}
-
-            {bounty.status === 'completed' && (
-              <div className="status-message completed">
-                <div className="icon">✅</div>
-                <h3>Completed!</h3>
-                <p style={{ fontWeight: 400, marginTop: '0.5rem' }}>
-                  This bounty has been completed. {bounty.amount} USDC was released
-                  to {truncateWallet(bounty.solverWallet)}.
-                </p>
-                {bounty.escrowContractAddress && (
-                  <a
-                    href={`https://stellar.expert/explorer/testnet/contract/${bounty.escrowContractAddress}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn btn-secondary"
-                    style={{ marginTop: '1rem' }}
-                  >
-                    View on Stellar Explorer ↗
-                  </a>
-                )}
-              </div>
-            )}
+              {bounty.status === 'completed' && (
+                <div className="card" style={{ backgroundColor: 'rgba(16, 185, 129, 0.05)', borderColor: 'rgba(16, 185, 129, 0.2)' }}>
+                  <div style={{ fontSize: '14px', fontWeight: '700', marginBottom: '8px', color: '#10b981' }}>✓ Complete</div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.6' }}>
+                    This bounty has been completed and funds have been released.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

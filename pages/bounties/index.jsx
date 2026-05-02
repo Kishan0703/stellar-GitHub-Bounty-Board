@@ -1,21 +1,20 @@
+'use client';
+
 import { useState, useEffect, useMemo } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
+import Navbar from '../../components/Navbar';
+import { SkeletonCard } from '../../components/Skeleton';
+import { EmptyState } from '../../components/EmptyState';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-
-function GitHubIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16">
-      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
-    </svg>
-  );
-}
 
 export default function BountyBoard() {
   const [bounties, setBounties] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState('newest');
 
   useEffect(() => {
     fetchBounties();
@@ -36,152 +35,158 @@ export default function BountyBoard() {
   }
 
   const filtered = useMemo(() => {
-    if (filter === 'all') return bounties;
-    return bounties.filter((b) => b.status === filter);
-  }, [bounties, filter]);
+    let result = bounties;
 
-  const stats = useMemo(() => {
-    const total = bounties.length;
-    const open = bounties.filter((b) => b.status === 'open').length;
-    const claimed = bounties.filter((b) => b.status === 'claimed').length;
-    const completed = bounties.filter((b) => b.status === 'completed').length;
-    const totalValue = bounties
-      .filter((b) => b.status === 'open')
-      .reduce((sum, b) => sum + parseFloat(b.amount || 0), 0);
-    return { total, open, claimed, completed, totalValue };
-  }, [bounties]);
+    if (filter !== 'all') {
+      result = result.filter((b) => b.status === filter);
+    }
+
+    if (search) {
+      const q = search.toLowerCase();
+      result = result.filter(
+        (b) =>
+          b.title?.toLowerCase().includes(q) ||
+          b.repoOwner?.toLowerCase().includes(q) ||
+          b.repoName?.toLowerCase().includes(q)
+      );
+    }
+
+    if (sort === 'highest') {
+      result.sort((a, b) => parseFloat(b.amount || 0) - parseFloat(a.amount || 0));
+    } else if (sort === 'newest') {
+      result.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    }
+
+    return result;
+  }, [bounties, filter, search, sort]);
+
+  const timeAgo = (date) => {
+    if (!date) return '';
+    const seconds = Math.floor((new Date() - new Date(date)) / 1000);
+    if (seconds < 60) return 'just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
+  };
+
 
   return (
     <>
       <Head>
-        <title>Bounty Board — Stellar GitHub Bounties</title>
-        <meta
-          name="description"
-          content="Browse open GitHub bounties with USDC rewards locked in Stellar escrow. Claim bounties, submit PRs, and get paid automatically."
-        />
+        <title>Browse Bounties — BountyBoard</title>
+        <meta name="description" content="Browse open GitHub bounties with USDC rewards" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏆</text></svg>" />
       </Head>
 
-      {/* Navigation */}
-      <nav className="nav-bar">
-        <Link href="/bounties" className="logo">
-          🏆 <span>Stellar Bounties</span>
-        </Link>
-        <div className="nav-links">
-          <Link href="/bounties" className="active">Browse</Link>
-          <Link href="/bounties/create">Post Bounty</Link>
-        </div>
-      </nav>
+      <Navbar />
 
-      <div className="page-container">
-        {/* Header */}
-        <div className="page-header">
-          <div className="subtitle-badge">⚡ Powered by Stellar &amp; Trustless Work</div>
-          <h1>GitHub Bounty Board</h1>
-          <p>
-            Trustless bounties for open source. Post issues with USDC rewards, solve them, and get paid automatically when your PR merges.
-          </p>
-          <div className="header-actions">
-            <Link href="/bounties/create" className="btn btn-primary btn-lg">
-              🚀 Post a Bounty
-            </Link>
+      <div className="page">
+        <div className="container">
+          <div className="page-header">
+            <h1 className="page-title">Browse Bounties</h1>
+            <p className="page-subtitle">Find issues to solve and earn USDC rewards</p>
           </div>
-        </div>
 
-        {/* Stats */}
-        <div className="stats-row">
-          <div className="stat-card">
-            <div className="stat-value">{stats.total}</div>
-            <div className="stat-label">Total Bounties</div>
+          {/* Search & Filters */}
+          <div style={{ display: 'flex', gap: '16px', marginBottom: '24px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              type="text"
+              placeholder="Search bounties..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="form-input"
+              style={{ flex: 1, minWidth: '200px' }}
+            />
+            <select value={sort} onChange={(e) => setSort(e.target.value)} className="form-input">
+              <option value="newest">Newest</option>
+              <option value="highest">Highest Reward</option>
+            </select>
           </div>
-          <div className="stat-card">
-            <div className="stat-value">{stats.open}</div>
-            <div className="stat-label">Open</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-value">{stats.claimed}</div>
-            <div className="stat-label">In Progress</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-value">${stats.totalValue.toFixed(0)}</div>
-            <div className="stat-label">Available USDC</div>
-          </div>
-        </div>
 
-        {/* Filters */}
-        <div className="filter-bar">
-          {['all', 'open', 'claimed', 'completed'].map((f) => (
-            <button
-              key={f}
-              className={`filter-btn ${filter === f ? 'active' : ''}`}
-              onClick={() => setFilter(f)}
-            >
-              {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
-            </button>
-          ))}
-        </div>
-
-        {/* Content */}
-        {loading ? (
-          <div className="empty-state">
-            <div className="spinner" style={{ margin: '0 auto' }} />
-            <p style={{ marginTop: '1rem' }}>Loading bounties...</p>
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="empty-state">
-            <div className="icon">🔍</div>
-            <h3>No bounties found</h3>
-            <p>
-              {filter === 'all'
-                ? 'Be the first to post a bounty and reward open source contributors!'
-                : `No ${filter} bounties right now.`}
-            </p>
-            <Link href="/bounties/create" className="btn btn-primary">
-              Post the First Bounty
-            </Link>
-          </div>
-        ) : (
-          <div className="bounty-grid">
-            {filtered.map((bounty) => (
-              <Link
-                href={`/bounties/${bounty.id}`}
-                key={bounty.id}
-                style={{ textDecoration: 'none' }}
+          {/* Filter Tabs */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '32px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', overflowX: 'auto' }}>
+            {['all', 'open', 'claimed', 'completed'].map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`btn btn-ghost btn-sm`}
+                style={{
+                  borderBottom: filter === f ? '2px solid var(--accent)' : 'none',
+                  color: filter === f ? 'var(--accent)' : 'var(--text-secondary)',
+                  borderRadius: '0',
+                  padding: '8px 0',
+                  whiteSpace: 'nowrap',
+                }}
               >
-                <div className="bounty-card" id={`bounty-${bounty.id}`}>
-                  <div className="card-top">
-                    <span className={`status-badge ${bounty.status}`}>
-                      {bounty.status}
-                    </span>
-                    <div className="amount">
-                      {bounty.amount}
-                      <span className="currency">{bounty.currency || 'USDC'}</span>
-                    </div>
-                  </div>
-                  <h3>{bounty.title}</h3>
-                  {bounty.description && (
-                    <p className="description">{bounty.description}</p>
-                  )}
-                  <div className="card-meta">
-                    <span
-                      className="github-link"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        window.open(bounty.issueUrl, '_blank');
-                      }}
-                    >
-                      <GitHubIcon />
-                      {bounty.repoOwner}/{bounty.repoName}#{bounty.issueNumber}
-                    </span>
-                    <span className="view-btn">View Details →</span>
-                  </div>
-                </div>
-              </Link>
+                {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
+              </button>
             ))}
           </div>
-        )}
+
+          {/* Content */}
+          {loading ? (
+            <div className="grid grid-2">
+              {[...Array(6)].map((_, i) => (
+                <SkeletonCard key={i} />
+              ))}
+            </div>
+          ) : filtered.length === 0 ? (
+            <EmptyState
+              icon="🔍"
+              title="No bounties found"
+              description={
+                search
+                  ? `No bounties match "${search}"`
+                  : `No ${filter !== 'all' ? filter : ''} bounties right now`
+              }
+              action={
+                <Link href="/bounties/create" className="btn btn-primary">
+                  Post the First Bounty
+                </Link>
+              }
+            />
+          ) : (
+            <div className="grid grid-2">
+              {filtered.map((bounty) => (
+                <Link key={bounty.id} href={`/bounties/${bounty.id}`} style={{ textDecoration: 'none' }}>
+                  <div className="card" style={{ cursor: 'pointer', height: '100%', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '16px' }}>
+                      <span className={`badge badge-${bounty.status === 'completed' ? 'success' : bounty.status === 'claimed' ? 'info' : 'success'}`}>
+                        {bounty.status}
+                      </span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                        {timeAgo(bounty.createdAt)}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '12px' }}>
+                      <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', flex: 1 }}>
+                        {bounty.title}
+                      </h3>
+                      <div style={{ fontSize: '18px', fontWeight: '800', color: '#3b82f6', whiteSpace: 'nowrap' }}>
+                        ${bounty.amount}
+                      </div>
+                    </div>
+
+                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                      {bounty.repoOwner}/{bounty.repoName}#{bounty.issueNumber}
+                    </p>
+
+                    {bounty.description && (
+                      <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                        {bounty.description}
+                      </p>
+                    )}
+
+                    <div style={{ marginTop: 'auto', color: 'var(--accent)', fontSize: '13px', fontWeight: '600' }}>
+                      View Details →
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </>
   );
